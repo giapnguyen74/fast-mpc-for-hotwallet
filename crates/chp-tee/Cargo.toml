@@ -1,0 +1,13 @@
+[package]
+name = "chp-tee"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Simulated TEE/HSM: identity and wrap keys, attestation, hardware monotonic counters"
+
+[dependencies]
+chp-crypto = { workspace = true }
+chp-wire = { workspace = true }
+serde = { workspace = true }
+rand = { workspace = true }

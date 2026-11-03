@@ -1,0 +1,14 @@
+[package]
+name = "chp-wire"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "CHP wire format: closed message registry, deterministic CBOR, signed frames (DESIGN SP1 §5-§7)"
+
+[dependencies]
+serde = { workspace = true }
+serde_bytes = { workspace = true }
+ciborium = { workspace = true }
+thiserror = { workspace = true }
+hex = { workspace = true }
