@@ -284,17 +284,11 @@ sequenceDiagram
 Measured on **reference hardware**, release build, simulated TEE, in-memory transport (no network).
 Full table, method and reading notes: [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md).
 
-| Operation | Median | p95 | DESIGN estimate |
+| Operation | Median | p95 | DESIGN target |
 |---|---:|---:|---|
-| PROD fragment, per input (DKLs23) | 17.4 µs | 29.6 µs | ~15 µs |
-| COLD combine + independent verify, per input (DKLs23) | 124.7 µs | 237.9 µs | ~160 µs |
-| PROD fragment, per input (FROST-Taproot) | 179.2 µs | 414.1 µs | ~140 µs |
-| COLD check + combine + verify (FROST-Taproot) | 541.5 µs | 922.9 µs | ~400 µs |
-| PROD fragment, per input (FROST-Ed25519) | 71.6 µs | 262.2 µs | ~70 µs |
-| COLD check + combine + verify (FROST-Ed25519) | 206.9 µs | 540.7 µs | ~240 µs |
-| Withdrawal round trip, all checks, no network (SP6) | 793.2 µs | 1.53 ms | < 100 ms p99 incl. one hop |
-| Presign per presignature, batch of 64 (SP4) | 3.54 ms | 3.55 ms | — |
-| Whole key ceremony: enroll + DKG + tests + book + delivery | 474.06 ms | 528.18 ms | — |
+| Withdrawal round trip, every check, no network | 0.79 ms | 1.53 ms | < 100 ms p99 incl. one hop |
+| Presign, per presignature (batch of 64) | 3.5 ms | 3.6 ms | — |
+| Whole key ceremony (enroll + DKG + test signatures + book + delivery) | 0.47 s | 0.53 s | — |
 
 The online path costs well under a millisecond of compute per withdrawal; a deployment adds one
 network hop PROD → COLD. Presign (offline, inside wake windows) is the expensive part.
