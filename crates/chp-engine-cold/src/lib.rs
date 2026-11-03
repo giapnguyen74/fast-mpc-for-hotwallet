@@ -92,8 +92,9 @@ pub struct Batch {
 pub struct Sealed {
     pub pools: BTreeMap<PoolId, Pool>,
     pub batches: BTreeMap<B32, Batch>,
-    /// job_seq → (SHA-256 of the job frame body, encoded Status).
-    pub jobs: BTreeMap<u64, (B32, Vec<u8>)>,
+    /// (PROD signer, job_seq) → (SHA-256 of the job body, encoded Status). Keyed by PROD's
+    /// identity too: a replacement PROD restarts its job_seq (design-notes B11).
+    pub jobs: BTreeMap<(B32, u64), (B32, Vec<u8>)>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -611,6 +612,20 @@ impl Cold {
 
     // ------------------------------------------------------------------ signing ---------
 
+    fn prod_signer(&self) -> B32 {
+        self.prod.as_ref().map(|l| l.peer_signer).unwrap_or_default()
+    }
+
+    /// Stored Status for a job of the currently linked PROD.
+    pub fn job_status(&self, job_seq: u64) -> Option<Vec<u8>> {
+        self.st.jobs.get(&(self.prod_signer(), job_seq)).map(|(_, s)| s.clone())
+    }
+
+    /// Drop quorum files queued for HOT (HOT already received them, e.g. in the ceremony).
+    pub fn clear_hot_queue(&mut self) {
+        self.hot_files.clear();
+    }
+
     fn status(&mut self, job_seq: u64, job_hash: B32, request_id: B32, outcome: Outcome, reason: &str, signed: Option<(Vec<u8>, B32)>) {
         let s = Status {
             job_seq,
@@ -620,7 +635,8 @@ impl Cold {
             txid: signed.as_ref().map(|(_, t)| *t),
             signed_tx: signed.map(|(b, _)| Bytes(b)),
         };
-        self.st.jobs.insert(job_seq, (job_hash, encode(&s)));
+        let k = (self.prod_signer(), job_seq);
+        self.st.jobs.insert(k, (job_hash, encode(&s)));
         self.send(Role::Prod, MsgType::Status, &s);
     }
 
@@ -629,7 +645,7 @@ impl Cold {
         let job: Job = decode_canonical(body).expect("validated");
         let job_hash = hash_of(body);
         // 4.2 job_seq first: a resent identical job gets the stored Status; never signed twice.
-        if let Some((h, stored)) = self.st.jobs.get(&job.job_seq).cloned() {
+        if let Some((h, stored)) = self.st.jobs.get(&(self.prod_signer(), job.job_seq)).cloned() {
             if h == job_hash {
                 let s: Status = decode_canonical(&stored).unwrap();
                 self.send(Role::Prod, MsgType::Status, &s);

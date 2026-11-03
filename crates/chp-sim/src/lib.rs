@@ -47,19 +47,63 @@ pub struct World {
     pub broadcasts: Vec<(String, Vec<u8>, B32)>,
     pub tx_nonce: u64,
     pub unfreeze_ver: u64,
+    pub revocation_ver: u64,
+    pub last_revocation: Option<Vec<u8>>,
+    /// Print every frame and engine event (the demo).
+    pub trace: bool,
+    ev_seen: [usize; 3],
+    presign_msgs: usize,
+}
+
+/// Narration helper: prints only when `on`.
+pub fn say(on: bool, s: impl AsRef<str>) {
+    if on {
+        println!("{}", s.as_ref());
+    }
+}
+
+/// `"PresignOpen (B#3)"` for a signed link frame.
+pub fn describe(bytes: &[u8]) -> String {
+    match decode_canonical::<chp_wire::SignedMsg>(bytes) {
+        Ok(f) => {
+            let t = MsgType::from_code(f.msg_type);
+            let stream = t.and_then(|t| t.stream()).map(|s| format!("{s:?}")).unwrap_or("-".into());
+            format!("{:<16} (stream {stream}, seq {})", t.map(|t| format!("{t:?}")).unwrap_or("?".into()), f.seq)
+        }
+        Err(_) => "<undecodable>".into(),
+    }
+}
+
+fn short(b: &B32) -> String {
+    hex::encode(&b.0[..4])
+}
+
+fn describe_event(who: &str, e: &chp_core::Event) -> String {
+    use chp_core::Event::*;
+    match e {
+        Refused { what, why } => format!("      ✗ {who} refused {what}: {why}"),
+        Frozen { fault, .. } => format!("      ❄ {who} FROZE the key ({fault:?})"),
+        Unfrozen { .. } => format!("      ☀ {who} unfroze the key (quorum Unfreeze verified)"),
+        BatchState { batch_id, state } => format!("      • {who}: batch {} → {state}", short(batch_id)),
+        PoolDiscarded { path, reason } => format!("      🗑 {who} discarded pool {path}: {reason}"),
+        Signed { request_id, txid } => format!("      ✔ {who} signed request {} → txid {}", short(request_id), short(txid)),
+        Info(s) => format!("      · {who}: {s}"),
+    }
 }
 
 pub struct Options {
     pub mode: Mode,
     pub batch_size: u16,
     pub paths: Vec<&'static str>,
+    /// Narrate setup and trace frames (the demo).
+    pub narrate: bool,
     /// COLD's limit per tx (PROD's is 10 ETH); lets tests make the two policies differ.
     pub cold_max_per_tx: String,
 }
 
 impl Default for Options {
     fn default() -> Self {
-        Options { mode: Mode::Standard, batch_size: 4, paths: vec![PATH, PATH2], cold_max_per_tx: "10000000000000000000".into() }
+        Options { mode: Mode::Standard, batch_size: 4, paths: vec![PATH, PATH2], narrate: false, cold_max_per_tx: "10000000000000000000".into() }
     }
 }
 
@@ -78,6 +122,8 @@ impl World {
     /// policies and certificates, and link COLD → PROD.
     pub async fn setup(o: Options) -> World {
         let now = T0;
+        let n = o.narrate;
+        say(n, "\n━━ SP1 · Enrollment: every party gets a quorum-signed identity ━━━━━━━━━━━━━━━━━━━━━━━");
         let releases = vec![measurement_of("hot-1.0"), measurement_of("cold-1.0"), measurement_of("prod-1.0")];
         let q = Quorum::new(releases);
         let pinned = q.pinned();
@@ -88,6 +134,9 @@ impl World {
         let hot_cert = q.enroll(&he.attest_keys(Role::Hot, 0), Role::Hot, 0, 0, he.id.public(), he.wrap.public(), now, ttl).unwrap();
         let cold_cert = q.enroll(&ce.attest_keys(Role::Cold, 0), Role::Cold, 1, 0, ce.id.public(), ce.wrap.public(), now, ttl).unwrap();
         let prod_cert = q.enroll(&pe.attest_keys(Role::Prod, 0), Role::Prod, 0, 0, pe.id.public(), pe.wrap.public(), now, ttl).unwrap();
+        say(n, "  HOT, COLD, PROD each generate id_key (Ed25519) + wrap_key (X25519) inside their enclave");
+        say(n, "  each sends an attestation binding H(role ‖ replica ‖ id_pk ‖ wrap_pk) to the ceremony quorum");
+        say(n, "  quorum (3-of-5 custodians) checks vendor signature + measurement on the release list → signs PartyCert");
         let mut hot = Hot::new(HotConfig { mode: o.mode, replica: 0, max_batches_cap: 16, max_window_secs: 3600 }, he, &pinned);
         let mut cold = Cold::new(ColdConfig { batch_size: o.batch_size, ..Default::default() }, ce, &pinned);
         let mut prod = Prod::new(pe, &pinned, 0);
@@ -100,6 +149,9 @@ impl World {
         let upstream_cert = q.enroll_client(Role::Upstream, upstream.public(), now, ttl);
         let requester_cert = q.enroll_client(Role::Requester, requester.public(), now, ttl);
 
+        say(n, "  UPSTREAM (withdrawal service) and a deposit-service requester enrolled as clients");
+        say(n, "\n━━ SP2 · Key ceremony (DKG) on the isolated ceremony network ━━━━━━━━━━━━━━━━━━━━━━━━━━");
+        say(n, format!("  quorum signs CeremonyOpen{{kind Dkg, boot_seq: HOT={}, COLD=1, REC=1}}", hot.wake_counter() + 1));
         // ---- SP2 ceremony + SP3 delivery ----
         let hc: PartyCert = hot.trust.verify_quorum(&hot_cert, MsgType::PartyCert).unwrap();
         let cc: PartyCert = hot.trust.verify_quorum(&cold_cert, MsgType::PartyCert).unwrap();
@@ -113,6 +165,12 @@ impl World {
         .await
         .expect("dkg");
         assert!(dkg.fingerprints.iter().all(|f| *f == dkg.fingerprints[0]));
+        say(n, "  DKLs23 2-of-3 DKG among HOT, COLD, REC — no dealer, the full key never exists");
+        say(n, format!("  Y fingerprints read aloud: HOT {}  COLD {}  REC {}  → equal", dkg.fingerprints[0], dkg.fingerprints[1], dkg.fingerprints[2]));
+        say(n, "  test signatures with every pair {H,C} {H,R} {C,R} verified against Y");
+        say(n, format!("  quorum signs KeyManifest{{key_id {}, version 1, Y, public shares}}", short(&dkg.key_id)));
+        say(n, format!("  each address path signs its own control statement → quorum signs AddressBook v1 ({} entries)", o.paths.len()));
+        say(n, "\n━━ SP3 · Share delivery: sealed packages → HOT, COLD (REC keeps its share in its HSM) ━━━━━━");
         hot.ceremony_boot(&dkg.open, now).expect("hot ceremony boot");
         cold.ceremony_boot(&dkg.open, now).expect("cold ceremony boot");
         let hr = hot.import_share(&dkg.manifest, &dkg.hot_package).expect("hot import");
@@ -120,6 +178,10 @@ impl World {
         let mh = chp_core::digest::hash_of(&dkg.manifest);
         check_receipt(&hr, &hc, &mh).expect("hot receipt");
         check_receipt(&cr, &cc, &mh).expect("cold receipt");
+        say(n, "  HOT, COLD: ceremony boot (boot_seq = counter + 1) → HPKE-open own package → check s_i·G == Y_i");
+        say(n, "  HOT, COLD → quorum: signed ShareReceipt (public share, measurement, manifest hash) ✔");
+        say(n, "  quorum signs Activate(key v1): key ACTIVE_PENDING → ACTIVE on HOT, COLD, PROD");
+        say(n, "  PROD receives public data only: manifest, AddressBook, Activate (it refuses any share)");
         let activate = q.sign(MsgType::Activate, &KeyControl { key_id: dkg.key_id, key_version: 1, version: 1 });
         for f in [&activate, &dkg.book, &prod_cert] {
             hot.apply_quorum_object(f, now).expect("hot quorum file");
@@ -134,6 +196,9 @@ impl World {
             prod.apply_quorum(f, now).unwrap();
         }
         prod.apply_quorum(&q.sign_policy(&PolicyBundle { target: Role::Prod, key_id: dkg.key_id, version: 1, rules: policy_rules("10000000000000000000") }), now).unwrap();
+        say(n, "\n━━ SP7 · Policy: two independent sources, two policy quorums ━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+        say(n, format!("  PolicyBundle{{target PROD}} signed by PROD's policy quorum: max/tx 10 ETH, allowlist [{DEST}]"));
+        say(n, format!("  PolicyBundle{{target COLD}} signed by COLD's policy quorum: max/tx {} wei", o.cold_max_per_tx));
 
         let mut w = World {
             now,
@@ -154,9 +219,18 @@ impl World {
             broadcasts: vec![],
             tx_nonce: 0,
             unfreeze_ver: 0,
+            revocation_ver: 0,
+            last_revocation: None,
+            trace: n,
+            ev_seen: [0; 3],
+            presign_msgs: 0,
         };
+        w.cold.clear_hot_queue(); // HOT received these objects in the ceremony
         w.cold.events.clear();
+        w.hot.events.clear();
+        w.prod.events.clear();
         w.dkg = Some(dkg);
+        say(n, "\n━━ SP1 · Link: COLD dials PROD (nobody dials COLD) ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
         w.connect_prod();
         w
     }
@@ -171,7 +245,9 @@ impl World {
     pub fn connect_prod(&mut self) {
         let tls = B32(rand::random());
         let (nonce, h) = self.cold.dial(tls);
+        say(self.trace, "  COLD → PROD   LinkHello (cert, nonce, tls_binding)          PROD: cert ✔ role Cold ✔ binding ✔");
         let reply = self.prod.on_hello(&h, tls, self.now).expect("prod accepts COLD");
+        say(self.trace, "  PROD → COLD   LinkHello (peer_nonce echoes COLD's)          COLD: cert ✔ role Prod ✔ nonce ✔");
         self.cold.on_hello_reply(&reply, tls, nonce, self.now).expect("cold accepts PROD");
         self.prod.resend_outbox();
     }
@@ -180,7 +256,9 @@ impl World {
     pub fn connect_hot(&mut self) {
         let tls = B32(rand::random());
         let (nonce, h) = self.cold.dial(tls);
+        say(self.trace, "  COLD → HOT    LinkHello                                      HOT (booted locked): accepts only COLD");
         let reply = self.hot.on_hello(&h, tls, self.now).expect("hot accepts COLD");
+        say(self.trace, "  HOT  → COLD   LinkHello                                      link installed, streams reset");
         self.cold.on_hello_reply(&reply, tls, nonce, self.now).expect("cold accepts HOT");
     }
 
@@ -195,27 +273,48 @@ impl World {
             for o in std::mem::take(&mut self.cold.out) {
                 moved = true;
                 match o {
-                    Out::Send { to: Role::Hot, bytes } => self.hot.on_frame(&bytes, self.now),
-                    Out::Send { to: Role::Prod, bytes } => self.prod.on_frame(&bytes, self.now),
+                    Out::Send { to: Role::Hot, bytes } => {
+                        self.trace_frame("COLD", "HOT ", &bytes);
+                        self.hot.on_frame(&bytes, self.now)
+                    }
+                    Out::Send { to: Role::Prod, bytes } => {
+                        self.trace_frame("COLD", "PROD", &bytes);
+                        self.prod.on_frame(&bytes, self.now)
+                    }
+                    Out::Display(d) => say(self.trace, format!("  [COLD display] {d}")),
                     _ => {}
                 }
             }
             for o in std::mem::take(&mut self.hot.out) {
                 moved = true;
                 match o {
-                    Out::Send { to: Role::Cold, bytes } => self.cold.on_frame(Role::Hot, &bytes, self.now),
-                    Out::Media(b) => self.media.push(b),
+                    Out::Send { to: Role::Cold, bytes } => {
+                        self.trace_frame("HOT ", "COLD", &bytes);
+                        self.cold.on_frame(Role::Hot, &bytes, self.now)
+                    }
+                    Out::Media(b) => {
+                        say(self.trace, format!("  HOT  → 💾     MediaBundle ({} bytes, HPKE ciphertext only PROD can open); HOT erased its halves", b.len()));
+                        self.media.push(b)
+                    }
+                    Out::Display(d) => say(self.trace, format!("  [HOT display]  {d}")),
                     _ => {}
                 }
             }
             for o in std::mem::take(&mut self.prod.out) {
                 moved = true;
                 match o {
-                    Out::Send { to: Role::Cold, bytes } => self.cold.on_frame(Role::Prod, &bytes, self.now),
-                    Out::Broadcast { chain, signed_tx, txid } => self.broadcasts.push((chain, signed_tx, txid)),
+                    Out::Send { to: Role::Cold, bytes } => {
+                        self.trace_frame("PROD", "COLD", &bytes);
+                        self.cold.on_frame(Role::Prod, &bytes, self.now)
+                    }
+                    Out::Broadcast { chain, signed_tx, txid } => {
+                        say(self.trace, format!("  PROD → ⛓     broadcast signed tx {} on {chain}", short(&txid)));
+                        self.broadcasts.push((chain, signed_tx, txid))
+                    }
                     _ => {}
                 }
             }
+            self.flush_events();
             if moved {
                 idle = 0;
                 continue;
@@ -226,10 +325,85 @@ impl World {
             }
             idle += 1;
             if idle > 2 {
+                self.flush_presign_count();
+                self.flush_events();
                 return;
             }
         }
         panic!("pump did not settle");
+    }
+
+    fn trace_frame(&mut self, from: &str, to: &str, bytes: &[u8]) {
+        if !self.trace {
+            return;
+        }
+        let d = describe(bytes);
+        if d.starts_with("PresignMsg") {
+            self.presign_msgs += 1;
+            return;
+        }
+        self.flush_presign_count();
+        println!("  {from} → {to}   {d}");
+    }
+
+    fn flush_presign_count(&mut self) {
+        if self.presign_msgs > 0 {
+            println!("  COLD ⇄ HOT    … {} × PresignMsg (DKLs23 rounds R1–R3, each signed + sequence-checked)", self.presign_msgs);
+            self.presign_msgs = 0;
+        }
+    }
+
+    /// Print engine events not printed yet.
+    pub fn flush_events(&mut self) {
+        if !self.trace {
+            return;
+        }
+        for (i, (who, evs)) in [("HOT", &self.hot.events), ("COLD", &self.cold.events), ("PROD", &self.prod.events)].into_iter().enumerate() {
+            if evs.len() < self.ev_seen[i] {
+                self.ev_seen[i] = 0;
+            }
+            for e in &evs[self.ev_seen[i]..] {
+                println!("{}", describe_event(who, e));
+            }
+            self.ev_seen[i] = evs.len();
+        }
+    }
+
+    // ------------------------------------------------------------------ exit / join -----
+
+    /// PROD exits (DESIGN SP1 §8, SP8 §3): the quorum revokes its certificate. Every pool is
+    /// discarded (every pool involves PROD's side); no key ceremony is needed (PROD holds no
+    /// share). The revocation is queued for HOT's next window.
+    pub fn revoke_prod(&mut self) -> Vec<u8> {
+        self.revocation_ver += 1;
+        let h = B32(chp_crypto::ident::key_hash(&self.prod.enclave.id.public()));
+        let rl = self.q.sign(MsgType::RevocationList, &RevocationList { version: self.revocation_ver, revoked: vec![h] });
+        self.cold.apply_quorum(&rl, self.now).expect("COLD applies revocation");
+        self.last_revocation = Some(rl.clone());
+        self.flush_events();
+        rl
+    }
+
+    /// A new PROD joins (DESIGN SP8 §3): enroll a fresh enclave, give it public data only,
+    /// deliver its certificate to COLD (queued for HOT, which seals bundles to it), link.
+    pub fn join_new_prod(&mut self) {
+        let ttl = 90 * 86_400;
+        let pe = Enclave::new(measurement_of("prod-1.0"));
+        let cert = self.q.enroll(&pe.attest_keys(Role::Prod, 0), Role::Prod, 0, 0, pe.id.public(), pe.wrap.public(), self.now, ttl).expect("enroll");
+        let mut prod = Prod::new(pe, &self.q.pinned(), 0);
+        prod.set_cert(cert.clone());
+        let activate = self.q.sign(MsgType::Activate, &KeyControl { key_id: self.key_id, key_version: 1, version: 1 });
+        for f in [&self.manifest, &activate, &self.book, &self.upstream_cert, &self.requester_cert] {
+            prod.apply_quorum(f, self.now).expect("new PROD public data");
+        }
+        if let Some(rl) = &self.last_revocation {
+            prod.apply_quorum(rl, self.now).expect("new PROD learns the current revocation list");
+        }
+        prod.apply_quorum(&self.q.sign_policy(&PolicyBundle { target: Role::Prod, key_id: self.key_id, version: 1, rules: policy_rules("10000000000000000000") }), self.now).unwrap();
+        self.cold.apply_quorum(&cert, self.now).expect("COLD queues new PROD cert for HOT");
+        self.prod = prod;
+        self.ev_seen[2] = 0;
+        self.connect_prod();
     }
 
     // ------------------------------------------------------------------ operations ------
@@ -309,7 +483,7 @@ impl World {
 
     /// Last Status outcome COLD recorded for a job (from COLD's sealed job table).
     pub fn status_of(&self, job_seq: u64) -> Option<Status> {
-        self.cold.st.jobs.get(&job_seq).map(|(_, s)| decode_canonical(s).unwrap())
+        self.cold.job_status(job_seq).map(|s| decode_canonical(&s).unwrap())
     }
 
     /// Quorum `Unfreeze` to COLD and PROD (and queued for HOT).

@@ -73,6 +73,8 @@ pub struct Prod {
     batches: BTreeMap<B32, BatchRec>,
     cold: Option<Link>,
     cold_wrap_pk: Option<B32>,
+    /// HOT signers seen on imported bundles (to know whether a revocation hits HOT).
+    hot_signers: std::collections::BTreeSet<B32>,
     next_job_seq: u64,
     /// job_seq → encoded Job frame body (re-sent after a reconnect).
     outbox: BTreeMap<u64, Job>,
@@ -99,6 +101,7 @@ impl Prod {
             batches: BTreeMap::new(),
             cold: None,
             cold_wrap_pk: None,
+            hot_signers: Default::default(),
             next_job_seq: 1,
             outbox: BTreeMap::new(),
             pending_env: BTreeMap::new(),
@@ -163,6 +166,7 @@ impl Prod {
         let wrap = self.cold_wrap_pk.expect("linked");
         let s = seal(&wrap.0, b"chp-job-v1", &aad, &encode(&frags), &mut rand::thread_rng()).unwrap();
         job.sealed = Sealed { enc: Bytes(s.enc), ct: Bytes(s.ct) };
+        self.outbox.insert(job.job_seq, job.clone());
         self.send(MsgType::Job, &job);
     }
 
@@ -245,6 +249,7 @@ impl Prod {
             return Err(r("transfer seq must be 0".into()));
         }
         let tr: PresigTransfer = decode_canonical(&body).map_err(|e| r(e.to_string()))?;
+        self.hot_signers.insert(B32(chp_crypto::ident::key_hash(&cert.id_pk.0)));
         // Batch state: replay of a live batch is ignored; an aborted batch is refused.
         match self.batches.get(&tr.batch_id).map(|b| b.st) {
             Some(PBatch::Pending) | Some(PBatch::Active) => return Ok(()),
@@ -519,10 +524,15 @@ impl Prod {
             }
             MsgType::RevocationList => {
                 let newly = self.trust.apply_revocation(bytes).map_err(|x| e(x.to_string()))?;
+                // Every pool involves HOT's, COLD's and PROD's side: revoking any of them discards
+                // all pools; revoking a client or an unrelated key discards nothing.
+                let me = B32(chp_crypto::ident::key_hash(&self.enclave.id.public()));
+                let cold = self.cold.as_ref().map(|l| l.peer_signer);
                 let mut discard = false;
                 for h in &newly {
-                    if self.clients.remove(h).is_none() {
-                        discard = true; // HOT, COLD or PROD: every pool involves its side
+                    self.clients.remove(h);
+                    if *h == me || Some(*h) == cold || self.hot_signers.contains(h) {
+                        discard = true;
                     }
                 }
                 if self.cold.as_ref().is_some_and(|l| newly.contains(&l.peer_signer)) {

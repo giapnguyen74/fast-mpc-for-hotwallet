@@ -279,7 +279,11 @@ impl Hot {
         if self.window().is_none() {
             return refuse("quorum files only inside a window");
         }
-        self.apply_quorum_object(&qf.inner.0, now)
+        self.apply_quorum_object(&qf.inner.0, now)?;
+        let t = decode_canonical::<QuorumSignedMsg>(&qf.inner.0).ok().and_then(|q| MsgType::from_code(q.msg_type));
+        let name = t.map(|t| format!("{t:?}")).unwrap_or_default();
+        self.events.push(Event::Info(format!("verified quorum signatures and applied {name}")));
+        Ok(())
     }
 
     /// Apply a public quorum-signed object; HOT verifies the inner signature itself.

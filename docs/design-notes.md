@@ -39,3 +39,10 @@ proposed design changes. Status: prototype as of 2026-11-03.
 - FROST engines (crypto validated in `chp-frost`, not wired into HOT/COLD/PROD).
 - High-security mode `Dkg` return stage (refused correctly; the in-window DKG continuation is not wired).
 - Hash-chained audit log export (events are recorded in memory per engine).
+
+## D. Found by the demo (`cargo run -p chp-sim --example demo`)
+
+| # | Finding | Fix in the prototype | Proposal |
+|---|---|---|---|
+| B11 | **`job_seq` collides across a PROD replacement.** SP6 step 4.2 looks up `job_seq` alone. A new PROD restarts at 1, so COLD refused its first job as "job_seq reused with different content" | COLD keys its job table by `(PROD signer, job_seq)` | SP6: idempotency key is `(PROD identity, job_seq)`, or the quorum assigns each PROD a `job_seq` floor |
+| B12 | Revocation at PROD discarded pools for any non-client key (B6 again, at PROD) | PROD discards only if the revoked key is its COLD peer, itself, or a HOT that signed an imported bundle | same as B6: put `role` in revocation entries |

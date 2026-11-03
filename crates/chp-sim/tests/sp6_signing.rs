@@ -245,13 +245,13 @@ async fn a_resent_job_is_never_signed_twice() {
     let job: Job = decode_canonical(&f.body.0).unwrap();
     w.pump().await;
     assert_eq!(signed_count(&w), 1);
-    let first = w.cold.st.jobs[&job.job_seq].1.clone();
+    let first = w.cold.job_status(job.job_seq).unwrap();
 
     // The identical job again (e.g. after a reconnect): COLD returns the stored Status.
     w.prod.adversary_send_job_raw(job.clone());
     w.pump().await;
     assert_eq!(signed_count(&w), 1, "never signed twice");
-    assert_eq!(w.cold.st.jobs[&job.job_seq].1, first);
+    assert_eq!(w.cold.job_status(job.job_seq).unwrap(), first);
 
     // Same job_seq, different content: refused.
     let mut j2 = job.clone();
