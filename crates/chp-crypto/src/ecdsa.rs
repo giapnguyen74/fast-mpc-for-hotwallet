@@ -60,7 +60,7 @@ pub fn r_scalar(big_r: &ProjectivePoint) -> Scalar {
 ///
 /// Secret material: zeroized on drop. Never `Clone` — a half is moved, never copied
 /// (DESIGN rule 3, "take = delete").
-#[derive(Serialize, Deserialize, Zeroize, ZeroizeOnDrop, PartialEq, Eq, Debug)]
+#[derive(Serialize, Deserialize, Zeroize, ZeroizeOnDrop, PartialEq, Eq)]
 pub struct EcdsaHalf {
     /// DKLs23 final session id (public; the "public part" in the batch digest).
     pub sid: [u8; 32],
@@ -75,14 +75,22 @@ pub struct EcdsaHalf {
     s1: [u8; 32],
 }
 
+/// Redacted: never print secret values (security review).
+impl std::fmt::Debug for EcdsaHalf {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "EcdsaHalf {{ sid: {}…, <secret redacted> }}", hex::encode(&self.sid[..4]))
+    }
+}
+
 impl EcdsaHalf {
     /// Build a half from raw presign values (see `chp_mpc::half_from_presign`).
     pub fn from_parts(sid: [u8; 32], big_r: [u8; 33], y: [u8; 33], phi: [u8; 32], s0: [u8; 32], s1: [u8; 32]) -> Self {
         EcdsaHalf { sid, big_r: big_r.to_vec(), y: y.to_vec(), phi, s0, s1 }
     }
 
-    /// Test/simulation helper: deliberately duplicate a half (e.g. to model a storage snapshot).
-    #[doc(hidden)]
+    /// **Simulation only** (`sim-hooks`): deliberately duplicate a half to model a breach or a
+    /// storage snapshot. Production builds have no way to copy a half (rule 3).
+    #[cfg(feature = "sim-hooks")]
     pub fn duplicate_for_test(&self) -> Self {
         EcdsaHalf {
             sid: self.sid,
@@ -182,6 +190,7 @@ pub fn cold_complete(
 
 /// **Risk demonstration (DESIGN §6):** both halves of one unused presignature give the key:
 /// `x = Σs₀′ / (r·Σφ)`. Used only by tests and by the documentation of that risk.
+#[cfg(feature = "sim-hooks")]
 pub fn key_from_both_halves(h: &EcdsaHalf, c: &EcdsaHalf) -> Result<Scalar, CryptoError> {
     let r = r_scalar(&h.big_r_point()?);
     let num = dec_scalar(&h.s0)? + dec_scalar(&c.s0)?;

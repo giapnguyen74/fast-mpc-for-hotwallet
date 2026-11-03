@@ -127,13 +127,23 @@ pub struct ShareReceipt {
     pub manifest_hash: B32,
 }
 
-/// `Activate` / `Retire` / `Unfreeze` share one shape (DESIGN SP3, SP7, SP8).
+/// `Activate` / `Retire` share one shape (DESIGN SP3, SP8).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct KeyControl {
     pub key_id: KeyId,
     pub key_version: u32,
     /// Monotonic version of this control object (anti-replay, DESIGN SP1 §7).
     pub version: u64,
+}
+
+/// `Unfreeze` (DESIGN SP7). Names the freeze it lifts (`evidence_hash` of that freeze), so a
+/// withheld Unfreeze issued for one incident cannot lift a later freeze (security review).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UnfreezeBody {
+    pub key_id: KeyId,
+    pub key_version: u32,
+    pub version: u64,
+    pub evidence_hash: B32,
 }
 
 // ---------------------------------------------------------------- SP4 wake + presign -------
@@ -343,6 +353,8 @@ pub struct PolicyRules {
     pub chain_ids: Vec<u64>,
     /// Allow contract calls (non-empty calldata)?
     pub allow_calldata: bool,
+    /// Max fee per tx (`gas_limit · max_fee_per_gas`, base units). Fees move funds too.
+    pub max_fee_per_tx: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -419,6 +431,8 @@ pub struct AddressQuery {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AddressProof {
     pub nonce: B32,
+    /// Echo of the query's `request_id`.
+    pub request_id: B32,
     pub entry: AddressEntry,
     /// Encoded `QuorumSignedMsg<AddressBook>`.
     pub book: Bytes,
@@ -446,7 +460,8 @@ pub fn validate(t: crate::MsgType, body: &[u8]) -> Result<(), crate::WireError> 
         T::KeyManifest => d::<KeyManifest>(body).map(drop),
         T::SharePackage => d::<SharePackage>(body).map(drop),
         T::ShareReceipt => d::<ShareReceipt>(body).map(drop),
-        T::Activate | T::Retire | T::Unfreeze => d::<KeyControl>(body).map(drop),
+        T::Activate | T::Retire => d::<KeyControl>(body).map(drop),
+        T::Unfreeze => d::<UnfreezeBody>(body).map(drop),
         T::CeremonyRound => d::<Bytes>(body).map(drop),
         T::WakeOpen => d::<WakeOpen>(body).map(drop),
         T::WakeAccept => d::<WakeAccept>(body).map(drop),

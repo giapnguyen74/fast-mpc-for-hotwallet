@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 
 use chp_auth::{trust::Trust, AuthError};
 use chp_wire::{
-    msgs::{KeyControl, KeyManifest},
+    msgs::{KeyControl, KeyManifest, UnfreezeBody},
     Fault, KeyId, KeyState, MsgType, Protocol,
 };
 use k256::ProjectivePoint;
@@ -34,6 +34,8 @@ pub struct KeyEntry {
     pub manifest_hash: chp_wire::B32,
     pub state: KeyState,
     pub frozen: Option<Fault>,
+    /// Evidence of the freeze in force; an `Unfreeze` must name it.
+    pub freeze_evidence: Option<chp_wire::B32>,
 }
 
 impl KeyEntry {
@@ -70,6 +72,7 @@ impl Keyring {
             manifest_hash: hash_of(bytes),
             state: KeyState::ActivePending,
             frozen: None,
+            freeze_evidence: None,
         });
         Ok(&self.keys[&k])
     }
@@ -115,21 +118,39 @@ impl Keyring {
         Ok(c)
     }
 
-    /// Quorum `Unfreeze` (SP7 §3).
+    /// Quorum `Unfreeze` (SP7 §3). It must name the evidence of the freeze in force, so an
+    /// Unfreeze issued for one incident cannot lift a later freeze.
     pub fn apply_unfreeze(&mut self, trust: &mut Trust, bytes: &[u8]) -> Result<KeyControl, KeyError> {
-        let c = self.control(trust, bytes, MsgType::Unfreeze)?;
-        self.keys.get_mut(&(c.key_id, c.key_version)).unwrap().frozen = None;
-        Ok(c)
+        let u: UnfreezeBody = trust.verify_quorum(bytes, MsgType::Unfreeze)?;
+        let e = self.keys.get(&(u.key_id, u.key_version)).ok_or(KeyError::Unknown)?;
+        if e.frozen.is_some() && e.freeze_evidence != Some(u.evidence_hash) {
+            return Err(KeyError::Transition("Unfreeze names another freeze"));
+        }
+        trust.bump_version(&format!("Unfreeze/{}", hex::encode(u.key_id.0)), u.version)?;
+        let e = self.keys.get_mut(&(u.key_id, u.key_version)).unwrap();
+        e.frozen = None;
+        e.freeze_evidence = None;
+        Ok(KeyControl { key_id: u.key_id, key_version: u.key_version, version: u.version })
     }
 
-    /// Freeze locally on own evidence or on a peer's `FreezeNotice`. Idempotent.
-    pub fn freeze(&mut self, key_id: &KeyId, version: u32, fault: Fault) -> bool {
+    /// Freeze locally on own evidence or on a peer's `FreezeNotice`. Idempotent: the first
+    /// freeze's evidence stays in force.
+    pub fn freeze(&mut self, key_id: &KeyId, version: u32, fault: Fault, evidence: chp_wire::B32) -> bool {
         match self.keys.get_mut(&(*key_id, version)) {
             Some(e) if e.frozen.is_none() => {
                 e.frozen = Some(fault);
+                e.freeze_evidence = Some(evidence);
                 true
             }
             _ => false,
+        }
+    }
+
+    /// Freeze every key (fail closed, e.g. after a detected storage restore).
+    pub fn freeze_all(&mut self, fault: Fault, evidence: chp_wire::B32) {
+        let ks: Vec<(KeyId, u32)> = self.keys.keys().copied().collect();
+        for (k, v) in ks {
+            self.freeze(&k, v, fault, evidence);
         }
     }
 }

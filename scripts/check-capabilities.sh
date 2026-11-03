@@ -14,4 +14,14 @@ for crate in chp-engine-prod chp-core chp-crypto chp-auth chp-wire chp-policy ch
     echo "ok:   $crate has no path to MPC / key-management code"
   fi
 done
+# Simulation hooks (copy halves, restore storage, forge jobs) must never be compiled into a
+# production build of an engine (security review).
+for crate in chp-engine-prod chp-engine-cold chp-engine-hot chp-crypto; do
+  if cargo tree -p "$crate" -e features --prefix none 2>/dev/null | grep -q 'feature "sim-hooks"'; then
+    echo "FAIL: $crate is built with feature sim-hooks"
+    status=1
+  else
+    echo "ok:   $crate production build has no sim-hooks"
+  fi
+done
 exit $status

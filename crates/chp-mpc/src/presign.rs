@@ -31,6 +31,7 @@ pub struct BatchRun {
 impl BatchRun {
     /// Start one library instance per id. Must be called inside a tokio runtime.
     pub fn start(share: Arc<Keyshare>, batch_id: [u8; 32], ids: &[u64]) -> Self {
+        assert!(ids.windows(2).all(|w| w[0] < w[1]), "presig ids must be strictly increasing");
         let mut inst = BTreeMap::new();
         for &id in ids {
             let (relay, end) = bridge();
@@ -58,7 +59,9 @@ impl BatchRun {
         i.incoming.send(payload).map_err(|_| CryptoError::Mpc("instance finished".into()))
     }
 
-    /// All instances finished (successfully or not)?
+    /// All instances finished (successfully or not)? Callers must check this **before** the
+    /// final `drain_outgoing`, so the last messages of an instance that finishes in between are
+    /// not lost (security review).
     pub fn is_finished(&self) -> bool {
         self.inst.values().all(|i| i.handle.as_ref().map(|h| h.is_finished()).unwrap_or(true))
     }
@@ -80,7 +83,10 @@ impl BatchRun {
         for (id, i) in self.inst.iter_mut() {
             let h = i.handle.take().ok_or(CryptoError::Mpc("already taken".into()))?;
             match h.await {
-                Ok(Ok(p)) => out.push((*id, half_from_presign(&p))),
+                Ok(Ok(mut p)) => {
+                    out.push((*id, half_from_presign(&p)));
+                    zeroize::Zeroize::zeroize(&mut p); // the library's copy of the half
+                }
                 Ok(Err(e)) => err = Some(e),
                 Err(e) => err = Some(CryptoError::Mpc(e.to_string())),
             }

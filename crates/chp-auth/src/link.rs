@@ -36,7 +36,7 @@ impl Link {
 
     /// The 6 checks of SP1 §5, in order, **before advancing any state**. On success the
     /// stream's sequence advances and the (type, canonical body bytes) are returned.
-    pub fn check(&mut self, trust: &Trust, bytes: &[u8]) -> Result<(MsgType, Vec<u8>)> {
+    pub fn check(&mut self, trust: &Trust, now: u64, bytes: &[u8]) -> Result<(MsgType, Vec<u8>)> {
         let f: SignedMsg = decode_canonical(bytes).map_err(AuthError::Frame)?;
         // 1. type in the closed registry
         let t = MsgType::from_code(f.msg_type).ok_or(AuthError::UnknownType(f.msg_type))?;
@@ -50,6 +50,9 @@ impl Link {
         }
         if trust.is_revoked(&self.peer_signer) {
             return Err(AuthError::Revoked);
+        }
+        if now > self.peer.not_after || now < self.peer.not_before {
+            return Err(AuthError::Cert("peer certificate outside its validity window".into()));
         }
         // 3. seq == last + 1 on this stream
         let want = self.recv[stream.index()] + 1;

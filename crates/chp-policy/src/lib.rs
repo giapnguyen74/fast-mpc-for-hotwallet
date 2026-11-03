@@ -24,7 +24,8 @@ pub enum Verdict {
 pub struct PolicyState {
     pub version: u64,
     pub rules: PolicyRules,
-    /// day index → value signed that day (counted when signed, DESIGN §10.5).
+    /// (time, value + max fee) of every signed withdrawal in the last 24 h (rolling window;
+    /// counted when signed, DESIGN §10.5).
     ledger: BTreeMap<u64, u128>,
 }
 
@@ -53,19 +54,28 @@ impl PolicyState {
         if !r.allowlist.iter().any(|a| a.eq_ignore_ascii_case(&d.to)) {
             return Verdict::Reject(format!("destination {} not on allowlist", d.to));
         }
-        if d.value > parse(&r.max_per_tx) {
-            return Verdict::Reject("over per-transaction limit".into());
+        if d.max_fee > parse(&r.max_fee_per_tx) {
+            return Verdict::Reject("over per-transaction fee cap".into());
         }
-        let today = *self.ledger.get(&(now / DAY)).unwrap_or(&0);
-        if today.saturating_add(d.value) > parse(&r.max_per_day) {
-            return Verdict::Reject("over daily limit".into());
+        let cost = d.value.saturating_add(d.max_fee);
+        if cost > parse(&r.max_per_tx) {
+            return Verdict::Reject("over per-transaction limit (value + max fee)".into());
+        }
+        if self.spent_24h(now).saturating_add(cost) > parse(&r.max_per_day) {
+            return Verdict::Reject("over rolling 24 h limit".into());
         }
         Verdict::Approve
     }
 
-    /// Record a signed withdrawal in this party's ledger.
+    fn spent_24h(&self, now: u64) -> u128 {
+        self.ledger.range(now.saturating_sub(DAY - 1)..).map(|(_, v)| *v).fold(0u128, |a, v| a.saturating_add(v))
+    }
+
+    /// Record a signed withdrawal (value + max fee) in this party's ledger.
     pub fn record(&mut self, d: &Decoded, now: u64) {
-        *self.ledger.entry(now / DAY).or_insert(0) += d.value;
+        let e = self.ledger.entry(now).or_insert(0);
+        *e = e.saturating_add(d.value.saturating_add(d.max_fee));
+        self.ledger = self.ledger.split_off(&now.saturating_sub(DAY));
     }
 }
 
@@ -81,11 +91,12 @@ mod tests {
             allowlist: vec!["0xaa".into()],
             chain_ids: vec![1],
             allow_calldata: false,
+            max_fee_per_tx: "10".into(),
         });
         p
     }
     fn d(to: &str, v: u128) -> Decoded {
-        Decoded { messages: vec![[0; 32]], to: to.into(), value: v, chain_id: 1, has_calldata: false }
+        Decoded { messages: vec![[0; 32]], to: to.into(), value: v, chain_id: 1, has_calldata: false, max_fee: 0 }
     }
 
     #[test]
@@ -96,10 +107,20 @@ mod tests {
         assert!(matches!(p.evaluate(&d("0xaa", 101), 0), Verdict::Reject(_)));
         p.record(&d("0xaa", 100), 0);
         assert!(matches!(p.evaluate(&d("0xaa", 60), 10), Verdict::Reject(_)));
+        // rolling window: still refused just after midnight, allowed 24 h after the spend
+        assert!(matches!(p.evaluate(&d("0xaa", 60), DAY - 1), Verdict::Reject(_)));
         assert_eq!(p.evaluate(&d("0xaa", 60), DAY + 1), Verdict::Approve);
         let mut c = d("0xaa", 1);
         c.has_calldata = true; // zero-value approve() style call
         assert!(matches!(p.evaluate(&c, 0), Verdict::Reject(_)));
+        // fees move funds too: a huge fee is refused even with a tiny value
+        let mut f = d("0xaa", 1);
+        f.max_fee = 11;
+        assert!(matches!(p.evaluate(&f, 2 * DAY), Verdict::Reject(_)));
+        // value + fee counts against the per-tx limit
+        let mut g = d("0xaa", 95);
+        g.max_fee = 10;
+        assert!(matches!(p.evaluate(&g, 3 * DAY), Verdict::Reject(_)));
     }
 
     #[test]

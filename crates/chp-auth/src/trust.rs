@@ -20,8 +20,9 @@ pub struct Pinned {
     pub releases: Vec<B32>,
 }
 
-/// A party's current view of the trust roots.
-#[derive(Clone, Debug)]
+/// A party's current view of the trust roots. Serializable: it is part of a party's sealed,
+/// rollback-protected state.
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Trust {
     releases: BTreeSet<B32>,
     rosters: BTreeMap<QuorumRole, Roster>,
@@ -82,7 +83,9 @@ impl Trust {
         let mut seen = BTreeSet::new();
         for s in &q.sigs {
             // Non-members and duplicate signers are ignored (SP1 §7).
-            if !roster.members.contains(&s.member) || seen.contains(&s.member) {
+            // Revoked members do not count (security review: a RevocationList may name a
+            // custodian before the next RosterUpdate).
+            if !roster.members.contains(&s.member) || seen.contains(&s.member) || self.revoked.contains(&B32(ident::key_hash(&s.member.0))) {
                 continue;
             }
             if ident::verify(&s.member.0, &d, &s.sig.0).is_ok() {

@@ -20,3 +20,7 @@ ciborium = { workspace = true }
 rand = { workspace = true }
 hex = { workspace = true }
 thiserror = { workspace = true }
+
+[features]
+# Simulation / test hooks (storage snapshot and restore). Never enable in a release build.
+sim-hooks = []

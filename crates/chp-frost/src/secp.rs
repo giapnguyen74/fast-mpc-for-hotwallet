@@ -58,10 +58,26 @@ pub const CONTEXT_STRING: &[u8] = b"FROST-secp256k1-SHA256-TR-v1";
 /// Not `Clone`: a nonce pair is consumed (moved) by exactly one signing call.
 /// Reusing a pair leaks the share (see tests `nonce_reuse_*`), so storage
 /// must be take = delete (SP6 step 3/4).
-#[derive(Debug)]
 pub struct SecretNonces {
     d: Scalar,
     e: Scalar,
+}
+
+/// Redacted: secret nonces are never printed (security review).
+impl core::fmt::Debug for SecretNonces {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str("SecretNonces(<redacted>)")
+    }
+}
+
+impl Drop for SecretNonces {
+    fn drop(&mut self) {
+        // best-effort wipe of the nonce scalars
+        self.d = Scalar::ZERO;
+        self.e = Scalar::ZERO;
+        core::hint::black_box(&self.d);
+        core::hint::black_box(&self.e);
+    }
 }
 
 /// Public nonce commitments `(D, E) = (d·G, e·G)`.

@@ -298,6 +298,7 @@ network hop PROD → COLD. Presign (offline, inside wake windows) is the expensi
 - [`docs/DESIGN.md`](docs/DESIGN.md) — the protocol design.
 - [`docs/PLAN.md`](docs/PLAN.md) — implementation plan: scope, workspace layout, phases, testing.
 - [`docs/design-notes.md`](docs/design-notes.md) — findings and proposed design changes from building it.
+- [`docs/SECURITY.md`](docs/SECURITY.md) — security review: findings, fixes, regression tests, open items.
 - [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md) — timings on reference hardware.
 - [`crates/chp-frost/REVIEW.md`](crates/chp-frost/REVIEW.md) — FROST / Taproot validation report.
 
@@ -326,8 +327,8 @@ Rust workspace (see [`docs/PLAN.md`](docs/PLAN.md)):
 ./scripts/web-demo.sh                 # animated web demo of a real run → http://127.0.0.1:14080
 cargo run -p chp-sim --example demo   # narrated run of every flow above, every message printed
 cargo run --release -p chp-sim --example bench   # timings (see docs/BENCHMARKS.md)
-cargo test --workspace                # 98 tests: crypto validation, SP1, engines, end-to-end, adversarial
-./scripts/check-capabilities.sh       # PROD has no dependency path to MPC / key-management code
+cargo test --workspace                # 106 tests: crypto validation, SP1, engines, end-to-end, adversarial, security regressions
+./scripts/check-capabilities.sh       # PROD has no MPC code path; no simulation hooks in production builds
 ```
 
 ## Status
@@ -343,6 +344,13 @@ The code of this repository is MIT-licensed ([`LICENSE`](LICENSE)). Third-party 
 their own licenses: `thirdparty/dkls23` is under the Silence Laboratories **Non-Commercial**
 License. Commercial use of it is the user's own responsibility. See
 [`THIRD_PARTY_LICENSES.md`](THIRD_PARTY_LICENSES.md) and [`NOTICE`](NOTICE).
+
+## Security
+
+An internal security review (three independent reviewers plus `cargo audit`) found 2 high, 10
+medium and 14 low issues. All 26 are fixed, each with a regression test where practical; a few
+items are accepted as open for the prototype. A compromised PROD could not get an unauthorised
+signature, reuse a presignature or extract COLD's secrets. See [`docs/SECURITY.md`](docs/SECURITY.md).
 
 ## Warnings
 

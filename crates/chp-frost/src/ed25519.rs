@@ -59,10 +59,11 @@ impl Ed25519Key {
     }
 }
 
-/// Decode a 32-byte point encoding (rejecting identity).
+/// Decode a 32-byte point encoding: canonical, not the identity, torsion-free (security
+/// review: small-order and mixed-order points are rejected).
 pub fn decode_point(b: &[u8; 32]) -> Result<EdwardsPoint, Error> {
     let p = CompressedEdwardsY(*b).decompress().ok_or(Error::InvalidPoint)?;
-    if p.is_identity() {
+    if p.is_identity() || !p.is_torsion_free() || p.compress().to_bytes() != *b {
         return Err(Error::InvalidPoint);
     }
     Ok(p)
@@ -78,10 +79,26 @@ pub fn decode_scalar(b: &[u8; 32]) -> Result<Scalar, Error> {
 // ---------------------------------------------------------------------------
 
 /// One side's secret nonce pair `(d, e)`. Not `Clone`: consumed by one signing call.
-#[derive(Debug)]
 pub struct SecretNonces {
     d: Scalar,
     e: Scalar,
+}
+
+/// Redacted: secret nonces are never printed (security review).
+impl core::fmt::Debug for SecretNonces {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str("SecretNonces(<redacted>)")
+    }
+}
+
+impl Drop for SecretNonces {
+    fn drop(&mut self) {
+        // best-effort wipe of the nonce scalars
+        self.d = Scalar::ZERO;
+        self.e = Scalar::ZERO;
+        core::hint::black_box(&self.d);
+        core::hint::black_box(&self.e);
+    }
 }
 
 /// Public commitments `(D, E)`.
@@ -287,8 +304,8 @@ impl Session {
         com_h: Commitments,
         com_c: Commitments,
     ) -> Result<Self, Error> {
-        for p in [com_h.hiding, com_h.binding, com_c.hiding, com_c.binding] {
-            if p.is_identity() {
+        for p in [com_h.hiding, com_h.binding, com_c.hiding, com_c.binding, key.y] {
+            if p.is_identity() || !p.is_torsion_free() {
                 return Err(Error::IdentityCommitment);
             }
         }

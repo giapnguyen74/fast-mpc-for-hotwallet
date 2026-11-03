@@ -45,6 +45,7 @@ struct BatchRec {
     ids: Vec<PresigId>,
     st: PBatch,
     import_deadline: u64,
+    digest: B32,
 }
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
@@ -64,7 +65,8 @@ pub struct Prod {
     cold_replica: u8,
     pub keyring: Keyring,
     pub book: BookView,
-    pub policy: PolicyState,
+    /// Per-key policy (a bundle for one key never applies to another).
+    pub policy: BTreeMap<KeyId, PolicyState>,
     replay: ReplayCache,
     query_replay: ReplayCache,
     clients: BTreeMap<B32, PartyCert>,
@@ -92,7 +94,7 @@ impl Prod {
             cold_replica,
             keyring: Keyring::default(),
             book: BookView::default(),
-            policy: PolicyState::default(),
+            policy: BTreeMap::new(),
             replay: ReplayCache::default(),
             query_replay: ReplayCache::default(),
             clients: BTreeMap::new(),
@@ -125,6 +127,10 @@ impl Prod {
     pub fn held_ids(&self, p: &PoolId) -> Vec<PresigId> {
         self.pools.get(p).map(|m| m.keys().copied().collect()).unwrap_or_default()
     }
+    /// Policy version in force for a key (0 = none).
+    pub fn policy_version(&self, key_id: &KeyId) -> u64 {
+        self.policy.get(key_id).map(|p| p.version).unwrap_or(0)
+    }
     pub fn outbox_len(&self) -> usize {
         self.outbox.len()
     }
@@ -143,23 +149,25 @@ impl Prod {
 
     /// Test/attack helper: copy PROD's halves (a breach). Returns (pool, id, half) for every
     /// half held.
-    #[doc(hidden)]
+    #[cfg(feature = "sim-hooks")]
     pub fn steal_halves(&self) -> Vec<(PoolId, PresigId, EcdsaHalf)> {
         self.pools.iter().flat_map(|(p, m)| m.iter().map(move |(id, (h, _))| (p.clone(), *id, h.duplicate_for_test()))).collect()
     }
 
     // ------------------------------------------------------------------ adversary hooks -
+    // Compiled only with the `sim-hooks` feature (simulator / tests): a production PROD has no
+    // API that copies or extracts halves (security review).
 
     /// **Test hook modelling a compromised PROD**: take a half out of the store (as an attacker
     /// with code execution on PROD could).
-    #[doc(hidden)]
+    #[cfg(feature = "sim-hooks")]
     pub fn adversary_take_half(&mut self, pool: &PoolId, id: PresigId) -> Option<EcdsaHalf> {
         self.pools.get_mut(pool).and_then(|m| m.remove(&id)).map(|(h, _)| h)
     }
 
     /// **Test hook modelling a compromised PROD**: send an arbitrary `Job` with arbitrary
     /// fragments, correctly sealed to COLD and signed with PROD's own identity key.
-    #[doc(hidden)]
+    #[cfg(feature = "sim-hooks")]
     pub fn adversary_send_job(&mut self, mut job: Job, frags: &[EcdsaFragment]) {
         job.sealed = Sealed { enc: Bytes::default(), ct: Bytes::default() };
         let aad = aad_of(b"chp-job-aad-v1", &job);
@@ -171,7 +179,7 @@ impl Prod {
     }
 
     /// **Test hook**: send raw bytes as if they were a sealed job ciphertext (tampering).
-    #[doc(hidden)]
+    #[cfg(feature = "sim-hooks")]
     pub fn adversary_send_job_raw(&mut self, job: Job) {
         self.send(MsgType::Job, &job);
     }
@@ -180,7 +188,7 @@ impl Prod {
     pub fn next_job_seq(&self) -> u64 {
         self.next_job_seq
     }
-    #[doc(hidden)]
+    #[cfg(feature = "sim-hooks")]
     pub fn adversary_bump_job_seq(&mut self) -> u64 {
         let s = self.next_job_seq;
         self.next_job_seq += 1;
@@ -192,6 +200,14 @@ impl Prod {
     /// PROD accepts only COLD's link and opens none.
     pub fn on_hello(&mut self, bytes: &[u8], tls: B32, now: u64) -> Result<Vec<u8>, Refusal> {
         let (link, h) = accept_hello(&mut self.trust, Role::Prod, now, bytes, tls, &[Role::Cold], None).map_err(|e| Refusal::Other(e.to_string()))?;
+        // Only this PROD's COLD replica, on the linked route (security review).
+        if link.peer.replica != self.cold_replica || link.peer.qr_route {
+            return Err(Refusal::Other("COLD replica or route not paired with this PROD".into()));
+        }
+        // A new hello replaces the link: everything that a link loss aborts is aborted.
+        if self.cold.is_some() {
+            self.link_lost();
+        }
         self.cold_wrap_pk = Some(link.peer.wrap_pk);
         self.cold = Some(link);
         let reply = make_hello(HelloParams {
@@ -201,7 +217,7 @@ impl Prod {
             nonce: B32(rand::random()),
             peer_nonce: Some(h.nonce),
             keys: self.keyring.all().map(|e| (e.manifest.key_id, e.manifest.key_version)).collect(),
-            policy_ver: Some(self.policy.version),
+            policy_ver: None,
             revocation_ver: self.trust.revocation_ver(),
             tls_binding: tls,
         });
@@ -266,13 +282,13 @@ impl Prod {
                 }
                 let hw = self.high_water.entry(pid.clone()).or_insert(0);
                 *hw = (*hw).max(*tr.presig_ids.last().unwrap());
-                self.batches.insert(tr.batch_id, BatchRec { pool: pid, ids: tr.presig_ids.clone(), st: PBatch::Pending, import_deadline: tr.import_deadline });
+                self.batches.insert(tr.batch_id, BatchRec { pool: pid, ids: tr.presig_ids.clone(), st: PBatch::Pending, import_deadline: tr.import_deadline, digest: tr.digest });
                 self.send(MsgType::TransferAck, &BatchDigest { batch_id: tr.batch_id, digest: tr.digest });
                 Ok(())
             }
             Err(why) => {
                 let pid = PoolId { key_id: tr.key_id, key_version: tr.key_version, path: tr.path.clone() };
-                self.batches.insert(tr.batch_id, BatchRec { pool: pid, ids: vec![], st: PBatch::Aborted, import_deadline: 0 });
+                self.batches.insert(tr.batch_id, BatchRec { pool: pid, ids: vec![], st: PBatch::Aborted, import_deadline: 0, digest: tr.digest });
                 self.send(MsgType::PresignAbort, &PresignAbort { batch_id: tr.batch_id, reason: AbortReason::ImportRefused });
                 Err(r(why))
             }
@@ -286,6 +302,9 @@ impl Prod {
         }
         if now > tr.import_deadline {
             return Err("import deadline passed".into());
+        }
+        if tr.presig_ids.is_empty() || tr.presig_ids.len() > 256 || !tr.presig_ids.windows(2).all(|w| w[0] < w[1]) {
+            return Err("ids must be 1..=256 and strictly increasing".into());
         }
         if tr.presig_ids.iter().any(|i| presig_id::replicas(*i).1 != self.cold_replica) {
             return Err("ids outside this replica's range".into());
@@ -331,7 +350,7 @@ impl Prod {
 
     pub fn on_frame(&mut self, bytes: &[u8], now: u64) {
         let Some(link) = self.cold.as_mut() else { return self.refused("frame", "no link") };
-        let (t, body) = match link.check(&self.trust, bytes) {
+        let (t, body) = match link.check(&self.trust, now, bytes) {
             Ok(x) => x,
             Err(e) => return self.refused("frame", e.to_string()),
         };
@@ -339,7 +358,7 @@ impl Prod {
             MsgType::PresignActivate => {
                 let a: BatchDigest = decode_canonical(&body).unwrap();
                 match self.batches.get_mut(&a.batch_id) {
-                    Some(b) if b.st == PBatch::Pending => {
+                    Some(b) if b.st == PBatch::Pending && b.digest == a.digest => {
                         b.st = PBatch::Active;
                         self.events.push(Event::BatchState { batch_id: a.batch_id, state: "Active".into() });
                     }
@@ -351,7 +370,7 @@ impl Prod {
                 match self.batches.get(&a.batch_id) {
                     // aborted before import: record it so a late bundle is refused
                     None => {
-                        self.batches.insert(a.batch_id, BatchRec { pool: PoolId { key_id: B32::default(), key_version: 0, path: String::new() }, ids: vec![], st: PBatch::Aborted, import_deadline: 0 });
+                        self.batches.insert(a.batch_id, BatchRec { pool: PoolId { key_id: B32::default(), key_version: 0, path: String::new() }, ids: vec![], st: PBatch::Aborted, import_deadline: 0, digest: B32::default() });
                     }
                     Some(_) => self.abort_local(&a.batch_id),
                 }
@@ -359,7 +378,7 @@ impl Prod {
             MsgType::Status => self.on_status(decode_canonical(&body).unwrap()),
             MsgType::FreezeNotice => {
                 let f: FreezeNotice = decode_canonical(&body).unwrap();
-                if self.keyring.freeze(&f.key_id, f.key_version, f.fault) {
+                if self.keyring.freeze(&f.key_id, f.key_version, f.fault, f.evidence_hash) {
                     self.events.push(Event::Frozen { key_id: f.key_id, fault: f.fault });
                 }
             }
@@ -380,7 +399,9 @@ impl Prod {
         if let (Outcome::Signed, Some(tx), Some(txid)) = (s.outcome, s.signed_tx.as_ref(), s.txid) {
             let env = self.pending_env.remove(&s.job_seq);
             if let Some((env, decoded, when)) = env {
-                self.policy.record(&decoded, when);
+                if let Some(p) = self.policy.get_mut(&env.key_id) {
+                    p.record(&decoded, when);
+                }
                 self.out.push(Out::Broadcast { chain: env.chain, signed_tx: tx.0.clone(), txid });
             }
         } else {
@@ -396,12 +417,15 @@ impl Prod {
         let adm = |s: &str| Refusal::Admission(s.to_string());
         let signer = signer_of(envelope_frame).map_err(|e| adm(&e.to_string()))?;
         let cert = self.clients.get(&signer).cloned().ok_or(adm("unknown signer"))?;
+        if now > cert.not_after || now < cert.not_before {
+            return Err(adm("UPSTREAM certificate outside its validity window"));
+        }
         if cert.role != Role::Upstream {
             return Err(adm("only UPSTREAM may request withdrawals"));
         }
         let (_, body) = check_standalone(&cert, Role::Prod, envelope_frame, MsgType::WithdrawalEnvelope).map_err(|e| adm(&e.to_string()))?;
         let env: WithdrawalEnvelope = decode_canonical(&body).map_err(|e| adm(&e.to_string()))?;
-        if now > env.not_after || env.not_after.saturating_sub(env.upstream_time) > 300 {
+        if now > env.not_after || env.not_after.saturating_sub(env.upstream_time) > 300 || env.not_after > now + 300 {
             return Err(adm("expired or validity window over 300 s"));
         }
         if self.replay.contains(&env.request_id) {
@@ -412,7 +436,7 @@ impl Prod {
             return Err(adm("key not active or frozen"));
         }
         let kv = k.manifest.key_version;
-        if k.manifest.chain != env.chain || env.prod_policy_ver != self.policy.version {
+        if k.manifest.chain != env.chain || env.prod_policy_ver != self.policy_version(&env.key_id) {
             return Err(adm("chain or PROD policy version mismatch"));
         }
         let decoded = chp_chain::decode(&env.chain, &env.raw_tx.0).map_err(|e| adm(&format!("PROD decode: {e}")))?;
@@ -422,7 +446,8 @@ impl Prod {
         if !self.book.path_active(&env.key_id, &env.path) {
             return Err(adm("path not in address book"));
         }
-        if let Verdict::Reject(why) = self.policy.evaluate(&decoded, now) {
+        let verdict = self.policy.get(&env.key_id).map(|p| p.evaluate(&decoded, now)).unwrap_or(Verdict::Reject("no policy for this key".into()));
+        if let Verdict::Reject(why) = verdict {
             return Err(adm(&format!("PROD policy: {why}")));
         }
         let pid = PoolId { key_id: env.key_id, key_version: kv, path: env.path.clone() };
@@ -480,16 +505,19 @@ impl Prod {
     pub fn address_query(&mut self, frame: &[u8], now: u64) -> Result<Vec<u8>, Refusal> {
         let signer = signer_of(frame).map_err(|e| Refusal::Other(e.to_string()))?;
         let cert = self.clients.get(&signer).cloned().ok_or(Refusal::Other("requester not enrolled".into()))?;
+        if now > cert.not_after || now < cert.not_before {
+            return Err(Refusal::Other("requester certificate outside its validity window".into()));
+        }
         let (_, body) = check_standalone(&cert, Role::Prod, frame, MsgType::AddressQuery).map_err(|e| Refusal::Other(e.to_string()))?;
         let q: AddressQuery = decode_canonical(&body).map_err(|e| Refusal::Other(e.to_string()))?;
-        if now > q.not_after || !self.query_replay.check_and_insert(q.nonce, q.not_after, now) {
+        if now > q.not_after || q.not_after > now + 300 || !self.query_replay.check_and_insert(q.nonce, q.not_after, now) {
             return Err(Refusal::Other("expired or replayed query".into()));
         }
         let entry = self.book.find(&q.chain, q.address.as_deref(), q.path.as_deref()).cloned();
         let manifest = self.book.book.as_ref().and_then(|b| self.keyring.get(&b.key_id, b.key_version)).map(|k| k.manifest_bytes.clone());
         match (entry, manifest) {
             (Some(entry), Some(manifest)) => {
-                let p = AddressProof { nonce: q.nonce, entry, book: Bytes(self.book.bytes.clone()), manifest: Bytes(manifest), prod_cert: Bytes(self.cert.clone()) };
+                let p = AddressProof { nonce: q.nonce, request_id: q.request_id, entry, book: Bytes(self.book.bytes.clone()), manifest: Bytes(manifest), prod_cert: Bytes(self.cert.clone()) };
                 Ok(sign_body(&self.enclave.id, MsgType::AddressProof, 0, &p))
             }
             _ => Ok(sign_body(&self.enclave.id, MsgType::NotFound, 0, &NotFound { nonce: q.nonce, request_id: q.request_id })),
@@ -526,12 +554,12 @@ impl Prod {
                 let newly = self.trust.apply_revocation(bytes).map_err(|x| e(x.to_string()))?;
                 // Every pool involves HOT's, COLD's and PROD's side: revoking any of them discards
                 // all pools; revoking a client or an unrelated key discards nothing.
-                let me = B32(chp_crypto::ident::key_hash(&self.enclave.id.public()));
-                let cold = self.cold.as_ref().map(|l| l.peer_signer);
+                // A hash alone does not say whether an unlinked key was a COLD or HOT (security
+                // review: the compromised COLD is usually the disconnected one), so anything that
+                // is not a known client discards conservatively.
                 let mut discard = false;
                 for h in &newly {
-                    self.clients.remove(h);
-                    if *h == me || Some(*h) == cold || self.hot_signers.contains(h) {
+                    if self.clients.remove(h).is_none() {
                         discard = true;
                     }
                 }
@@ -548,8 +576,11 @@ impl Prod {
                 if pb.target != Role::Prod {
                     return Err(e("PolicyBundle addressed to another party".into()));
                 }
-                self.trust.bump_version("policy", pb.version).map_err(|x| e(x.to_string()))?;
-                self.policy.install(pb.version, pb.rules);
+                if self.keyring.current(&pb.key_id).is_none() {
+                    return Err(e("PolicyBundle for an unknown key".into()));
+                }
+                self.trust.bump_version(&format!("policy/{}", hex::encode(pb.key_id.0)), pb.version).map_err(|x| e(x.to_string()))?;
+                self.policy.entry(pb.key_id).or_default().install(pb.version, pb.rules);
             }
             MsgType::AddressBook => {
                 let b: AddressBook = self.trust.verify_quorum(bytes, MsgType::AddressBook).map_err(|x| e(x.to_string()))?;

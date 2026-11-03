@@ -97,6 +97,8 @@ pub enum Fault {
     FinalVerify,
     PresigState,
     Presign,
+    /// COLD detected a storage restore of its control state (fail closed).
+    Rollback,
 }
 
 /// Pool identity `(key_id, key_version, path)` (DESIGN SP4 §4 step 1).

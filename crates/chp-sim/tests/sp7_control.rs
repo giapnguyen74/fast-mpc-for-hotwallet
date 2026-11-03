@@ -149,7 +149,7 @@ async fn retired_key_version_cannot_sign_and_nothing_is_deleted() {
     assert!(w.withdraw(DEST, 1, PATH).await.is_err());
     assert!(w.cold.pool(&w.pool(PATH)).unwrap().halves.is_empty(), "pools of the retired version discarded");
     // rule 8: the share is not deleted, only unusable
-    assert_eq!(w.cold.keyring.get(&w.key_id, 1).unwrap().state, chp_wire::KeyState::Retired);
+    assert_eq!(w.cold.st.keyring.get(&w.key_id, 1).unwrap().state, chp_wire::KeyState::Retired);
 }
 
 #[tokio::test(flavor = "multi_thread")]

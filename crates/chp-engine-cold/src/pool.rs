@@ -52,9 +52,11 @@ impl Pool {
     }
 
     /// Classify one id against the pool state and the hardware counter value `hw`.
-    pub fn classify(&self, id: PresigId, hw: u64) -> IdClass {
+    pub fn classify(&self, id: PresigId, hw: u64, replicas: (u8, u8)) -> IdClass {
         let b = presig_id::block(id);
-        if !self.issued_id(id) {
+        // The replica bits are part of the id: an id with foreign replica bits was never issued
+        // (security review: it would otherwise pass `issued_id` and push the mark to ~2^64).
+        if presig_id::replicas(id) != replicas || !self.issued_id(id) {
             return IdClass::Fault("presig id never issued");
         }
         if self.floor_block.is_some_and(|f| b <= f) {

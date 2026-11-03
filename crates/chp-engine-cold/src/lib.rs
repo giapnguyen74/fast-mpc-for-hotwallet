@@ -61,6 +61,7 @@ impl Default for ColdConfig {
 }
 
 const CEREMONY_COUNTER: &str = "ceremony";
+const STATE_COUNTER: &str = "state";
 
 /// COLD's own decode and messages, or the outcome to return.
 type Reverified = Result<(chp_chain::Decoded, Vec<[u8; 32]>), (Outcome, String)>;
@@ -87,9 +88,23 @@ pub struct Batch {
     pub import_deadline: u64,
 }
 
-/// COLD's sealed, restorable state (what a storage snapshot contains).
-#[derive(Serialize, Deserialize, Default)]
+/// COLD's sealed, restorable state (what a storage snapshot contains). **All** security state
+/// lives here and is covered by restore detection: pools, batches, jobs, and the control state
+/// (trust roots, revocations, rosters, key states and freezes, address book, per-key policy and
+/// ledger, replay cache, UPSTREAM certificates, time floor). Security review finding: the first
+/// version protected only the pools.
+#[derive(Serialize, Deserialize)]
 pub struct Sealed {
+    pub trust: Trust,
+    pub keyring: Keyring,
+    pub book: BookView,
+    /// Per-key policy and ledger (a bundle for one key never applies to another).
+    pub policy: BTreeMap<KeyId, PolicyState>,
+    pub replay: ReplayCache,
+    pub upstream: BTreeMap<B32, PartyCert>,
+    pub local_time_floor: u64,
+    /// The `state` hardware counter value COLD last set (restore detection for control state).
+    pub state_counter: u64,
     pub pools: BTreeMap<PoolId, Pool>,
     pub batches: BTreeMap<B32, Batch>,
     /// (PROD signer, job_seq) → (SHA-256 of the job body, encoded Status). Keyed by PROD's
@@ -107,14 +122,8 @@ enum Wake {
 pub struct Cold {
     pub cfg: ColdConfig,
     pub enclave: Enclave,
-    pub trust: Trust,
     cert: Vec<u8>,
-    pub keyring: Keyring,
-    pub book: BookView,
-    pub policy: PolicyState,
-    replay: ReplayCache,
     shares: BTreeMap<(KeyId, u32), Arc<Keyshare>>,
-    upstream: BTreeMap<B32, PartyCert>,
     pub st: Sealed,
     hot: Option<Link>,
     prod: Option<Link>,
@@ -124,7 +133,6 @@ pub struct Cold {
     hot_files: VecDeque<Vec<u8>>,
     /// `OrphanDelete`s to send once PROD is linked (after boot).
     prod_pending: Vec<OrphanDelete>,
-    local_time_floor: u64,
     ceremony: Option<CeremonyOpen>,
     pub out: Vec<Out>,
     pub events: Vec<Event>,
@@ -145,22 +153,27 @@ impl Cold {
         Cold {
             cfg,
             enclave,
-            trust: Trust::new(pinned),
             cert: Vec::new(),
-            keyring: Keyring::default(),
-            book: BookView::default(),
-            policy: PolicyState::default(),
-            replay: ReplayCache::default(),
             shares: BTreeMap::new(),
-            upstream: BTreeMap::new(),
-            st: Sealed::default(),
+            st: Sealed {
+                trust: Trust::new(pinned),
+                keyring: Keyring::default(),
+                book: BookView::default(),
+                policy: BTreeMap::new(),
+                replay: ReplayCache::default(),
+                upstream: BTreeMap::new(),
+                local_time_floor: 0,
+                state_counter: 0,
+                pools: BTreeMap::new(),
+                batches: BTreeMap::new(),
+                jobs: BTreeMap::new(),
+            },
             hot: None,
             prod: None,
             wake: Wake::Closed,
             runs: BTreeMap::new(),
             hot_files: VecDeque::new(),
             prod_pending: Vec::new(),
-            local_time_floor: 0,
             ceremony: None,
             out: Vec::new(),
             events: Vec::new(),
@@ -196,15 +209,28 @@ impl Cold {
 
     // ------------------------------------------------------------------ storage ---------
 
-    /// Snapshot of sealed storage (for restore drills in the simulator).
+    /// **Simulation only**: snapshot of sealed storage (restore drills).
+    #[cfg(feature = "sim-hooks")]
     pub fn snapshot(&self) -> Vec<u8> {
         encode(&self.st)
     }
 
-    /// Put an old storage snapshot back (an attack or a careless restore). Hardware counters
-    /// are untouched. Takes effect at the next [`Cold::boot`].
+    /// **Simulation only**: put an old storage snapshot back (an attack or a careless restore).
+    /// Hardware counters are untouched. Takes effect at the next [`Cold::boot`].
+    #[cfg(feature = "sim-hooks")]
     pub fn restore_storage(&mut self, snap: &[u8]) {
         self.st = ciborium::from_reader(snap).expect("snapshot");
+    }
+
+    /// Advance the `state` hardware counter after a control-state change, and seal its value.
+    /// A storage restore to any earlier control state is then detected at the next boot.
+    fn bump_state(&mut self) {
+        self.st.state_counter = self.enclave.counters.increment(STATE_COUNTER);
+    }
+
+    /// Policy version in force for a key (0 = none).
+    pub fn policy_version(&self, key_id: &KeyId) -> u64 {
+        self.st.policy.get(key_id).map(|p| p.version).unwrap_or(0)
     }
 
     /// Boot (DESIGN §6.1): for each pool, detect a storage restore (sealed counter value below
@@ -215,13 +241,26 @@ impl Cold {
         self.prod = None;
         self.wake = Wake::Closed;
         self.runs.clear();
+        // Control state: a sealed counter value below the hardware value means the storage was
+        // restored to an earlier control state (before a freeze, revocation, policy change…).
+        // Fail closed: freeze every key and discard every pool; recovery needs a fresh quorum
+        // Unfreeze naming this event.
+        let hw_state = self.enclave.counters.read(STATE_COUNTER);
+        let new_state = self.enclave.counters.increment(STATE_COUNTER);
+        let restored = self.st.state_counter < hw_state;
+        self.st.state_counter = new_state;
+        if restored {
+            let ev = B32(chp_crypto::hash::tagged_hash(b"chp-rollback-v1", &[&new_state.to_be_bytes()]));
+            self.st.keyring.freeze_all(Fault::Rollback, ev);
+            self.events.push(Event::Frozen { key_id: B32::default(), fault: Fault::Rollback });
+        }
         let pools: Vec<PoolId> = self.st.pools.keys().cloned().collect();
         for p in pools {
             let name = Pool::counter_name(&p);
             let hw_before = self.enclave.counters.read(&name);
             let new = self.enclave.counters.increment(&name);
             let pool = self.st.pools.get_mut(&p).unwrap();
-            if pool.last_set_counter < hw_before {
+            if restored || pool.last_set_counter < hw_before {
                 pool.discard(new as u32);
                 let floor = pool.floor_block.unwrap();
                 self.events.push(Event::PoolDiscarded { path: p.path.clone(), reason: "storage restore detected".into() });
@@ -234,11 +273,10 @@ impl Cold {
             pool.last_set_counter = new;
             pool.next_block = pool.next_block.max(new as u32 + 1);
         }
-        // Batches that were mid-flight die with the restart.
-        for b in self.st.batches.values_mut() {
-            if !matches!(b.st, BatchSt::Active | BatchSt::Aborted) {
-                b.st = BatchSt::Aborted;
-            }
+        // Batches that were mid-flight die with the restart, and their halves with them.
+        let dead: Vec<B32> = self.st.batches.iter().filter(|(_, b)| !matches!(b.st, BatchSt::Active | BatchSt::Aborted)).map(|(k, _)| *k).collect();
+        for b in dead {
+            self.end_batch_nothing_stored(&b);
         }
     }
 
@@ -253,9 +291,9 @@ impl Cold {
             roster_updates: vec![],
             nonce,
             peer_nonce: None,
-            keys: self.keyring.all().map(|e| (e.manifest.key_id, e.manifest.key_version)).collect(),
-            policy_ver: Some(self.policy.version),
-            revocation_ver: self.trust.revocation_ver(),
+            keys: self.st.keyring.all().map(|e| (e.manifest.key_id, e.manifest.key_version)).collect(),
+            policy_ver: None,
+            revocation_ver: self.st.trust.revocation_ver(),
             tls_binding: tls,
         });
         (nonce, h)
@@ -263,7 +301,7 @@ impl Cold {
 
     /// Install a link from the peer's hello reply.
     pub fn on_hello_reply(&mut self, bytes: &[u8], tls: B32, my_nonce: B32, now: u64) -> Result<Role, ColdError> {
-        let (link, _) = accept_hello(&mut self.trust, Role::Cold, now, bytes, tls, &[Role::Hot, Role::Prod], Some(my_nonce))
+        let (link, _) = accept_hello(&mut self.st.trust, Role::Cold, now, bytes, tls, &[Role::Hot, Role::Prod], Some(my_nonce))
             .map_err(|e| ColdError::Refused(e.to_string()))?;
         let role = link.peer.role;
         match role {
@@ -309,14 +347,14 @@ impl Cold {
 
     /// Handle one frame from HOT or PROD.
     pub fn on_frame(&mut self, from: Role, bytes: &[u8], now: u64) {
-        self.local_time_floor = self.local_time_floor.max(now);
+        self.st.local_time_floor = self.st.local_time_floor.max(now);
         let link = match from {
             Role::Hot => self.hot.as_mut(),
             Role::Prod => self.prod.as_mut(),
             _ => None,
         };
         let Some(link) = link else { return self.refused("frame", "no link") };
-        let (t, body) = match link.check(&self.trust, bytes) {
+        let (t, body) = match link.check(&self.st.trust, now, bytes) {
             Ok(x) => x,
             Err(e) => return self.refused("frame", e.to_string()),
         };
@@ -430,18 +468,23 @@ impl Cold {
             return refuse("window batch cap reached");
         }
         let (key_id, kv) = (w.key_id, w.key_version);
-        let k = self.keyring.get(&key_id, kv).ok_or(ColdError::Refused("unknown key".into()))?;
-        if !k.usable() || !self.book.path_active(&key_id, path) || !self.shares.contains_key(&(key_id, kv)) {
+        let k = self.st.keyring.get(&key_id, kv).ok_or(ColdError::Refused("unknown key".into()))?;
+        if !k.usable() || !self.st.book.path_active(&key_id, path) || !self.shares.contains_key(&(key_id, kv)) {
             return refuse("key not usable or path not active");
         }
         let protocol = k.manifest.protocol;
         let pid = PoolId { key_id, key_version: kv, path: path.into() };
         let hw = self.hw(&pid);
-        let pool = self.st.pools.entry(pid.clone()).or_default();
-        if pool.last_set_counter == 0 && hw == 0 {
-            pool.last_set_counter = 0;
+        let next_floor = self.st.pools.entry(pid.clone()).or_default().next_block;
+        // Blocks come from a dedicated hardware allocation counter, so an undetected storage
+        // restore can never make COLD issue the same presignature ids twice (security review).
+        let alloc = format!("alloc/{}", Pool::counter_name(&pid));
+        let mut b = self.enclave.counters.increment(&alloc);
+        while b <= hw || (b as u32) < next_floor {
+            b = self.enclave.counters.increment(&alloc);
         }
-        let block = pool.next_block.max(hw as u32 + 1);
+        let block = b as u32;
+        let pool = self.st.pools.get_mut(&pid).unwrap();
         pool.next_block = block + 1;
         let n = self.cfg.batch_size;
         let ids: Vec<PresigId> = (0..n).map(|i| presig_id::make(self.cfg.hot_replica, self.cfg.replica, block, i)).collect();
@@ -491,14 +534,15 @@ impl Cold {
 
     /// Drive presign runs and deadlines.
     pub async fn poll(&mut self, now: u64) {
-        self.local_time_floor = self.local_time_floor.max(now);
+        self.st.local_time_floor = self.st.local_time_floor.max(now);
         let ids: Vec<B32> = self.runs.keys().copied().collect();
         for b in ids {
+            let done = self.runs[&b].is_finished(); // before the drain: no message is lost
             let msgs = self.runs.get_mut(&b).unwrap().drain_outgoing();
             for (id, payload) in msgs {
                 self.send(Role::Hot, MsgType::PresignMsg, &PresignMsg { batch_id: b, presig_id: id, payload: Bytes(payload) });
             }
-            if self.runs[&b].is_finished() {
+            if done {
                 let run = self.runs.remove(&b).unwrap();
                 let batch = self.st.batches[&b].clone();
                 match run.finish().await {
@@ -674,7 +718,7 @@ impl Cold {
             true => {
                 for it in &job.items {
                     let hw = self.enclave.counters.read(&name);
-                    let class = self.st.pools[&pid].classify(it.presig_id, hw);
+                    let class = self.st.pools[&pid].classify(it.presig_id, hw, (self.cfg.hot_replica, self.cfg.replica));
                     match class {
                         IdClass::Take => {
                             // entering a new block advances the hardware counter (by one each)
@@ -715,11 +759,12 @@ impl Cold {
             Err((o, why)) => self.status(job.job_seq, job_hash, env.request_id, o, &why, None),
             Ok((decoded, ms)) => {
                 // 5 own policy
-                if let Verdict::Reject(why) = self.policy.evaluate(&decoded, now) {
+                let verdict = self.st.policy.get(&env.key_id).map(|p| p.evaluate(&decoded, now)).unwrap_or(Verdict::Reject("no policy for this key".into()));
+                if let Verdict::Reject(why) = verdict {
                     return self.status(job.job_seq, job_hash, env.request_id, Outcome::Rejected, &format!("COLD policy: {why}"), None);
                 }
                 // 6 open fragments, combine, verify (independent verifier)
-                let k = self.keyring.get(&env.key_id, job.key_version).unwrap();
+                let k = self.st.keyring.get(&env.key_id, job.key_version).unwrap();
                 let y = k.group_key();
                 let t = t_path(&env.key_id.0, &y, &env.path);
                 let yp = derived_key(&env.key_id.0, &y, &env.path);
@@ -756,7 +801,9 @@ impl Cold {
                 }
                 match chp_chain::assemble(&env.chain, &env.raw_tx.0, &sigs) {
                     Ok((signed, txid)) => {
-                        self.policy.record(&decoded, now);
+                        if let Some(p) = self.st.policy.get_mut(&env.key_id) {
+                            p.record(&decoded, now);
+                        }
                         self.ev(Event::Signed { request_id: env.request_id, txid: B32(txid) });
                         self.status(job.job_seq, job_hash, env.request_id, Outcome::Signed, "", Some((signed, B32(txid))));
                     }
@@ -771,34 +818,40 @@ impl Cold {
         let rej = |s: &str| Err((Outcome::Rejected, s.to_string()));
         // UPSTREAM signature with COLD's own copy of UPSTREAM's certificate
         let signer = signer_of(&job.envelope.0).map_err(|e| (Outcome::Rejected, e.to_string()))?;
-        let Some(ucert) = self.upstream.get(&signer).cloned() else { return rej("unknown UPSTREAM signer") };
-        if self.trust.is_revoked(&signer) {
+        let Some(ucert) = self.st.upstream.get(&signer).cloned() else { return rej("unknown UPSTREAM signer") };
+        if self.st.trust.is_revoked(&signer) {
             return rej("UPSTREAM revoked");
         }
         check_standalone(&ucert, Role::Cold, &job.envelope.0, MsgType::WithdrawalEnvelope).map_err(|e| (Outcome::Rejected, format!("UPSTREAM signature: {e}")))?;
+        // COLD's own time: local clock, never moved by a peer (security review: a PROD-chosen
+        // prod_time must not prune COLD's replay cache).
+        let cold_now = now.max(self.st.local_time_floor);
+        if cold_now > ucert.not_after || cold_now < ucert.not_before {
+            return rej("UPSTREAM certificate outside its validity window");
+        }
         // trusted time: two signed sources that must agree, local clock as a floor (DESIGN §9.3)
         if job.prod_time.abs_diff(env.upstream_time) > self.cfg.max_time_skew {
             return rej("time sources disagree");
         }
-        let t_now = now.max(job.prod_time).max(self.local_time_floor);
+        let t_now = now.max(job.prod_time).max(self.st.local_time_floor);
         if env.not_after < env.upstream_time || env.not_after - env.upstream_time > self.cfg.max_request_window {
             return rej("validity window too long");
         }
         if t_now > env.not_after {
             return Err((Outcome::Expired, "request expired".into()));
         }
-        if !self.replay.check_and_insert(env.request_id, env.not_after, t_now) {
+        if self.st.replay.contains(&env.request_id) {
             return rej("replayed request_id");
         }
         // key state and versions
-        let Some(k) = self.keyring.get(&env.key_id, job.key_version) else { return rej("unknown key version") };
+        let Some(k) = self.st.keyring.get(&env.key_id, job.key_version) else { return rej("unknown key version") };
         if !k.usable() {
             return rej("key not active or frozen");
         }
-        if self.keyring.current(&env.key_id).map(|c| c.manifest.key_version) != Some(job.key_version) {
+        if self.st.keyring.current(&env.key_id).map(|c| c.manifest.key_version) != Some(job.key_version) {
             return rej("not the current key version");
         }
-        if env.cold_policy_ver != self.policy.version {
+        if env.cold_policy_ver != self.policy_version(&env.key_id) {
             return rej("request written against another COLD policy version");
         }
         if k.manifest.chain != env.chain || k.manifest.protocol != Protocol::Dkls23Secp256k1 {
@@ -810,7 +863,7 @@ impl Cold {
             return rej("input count mismatch");
         }
         // path: equals the presignature's path, Active in COLD's book
-        if !self.book.path_active(&env.key_id, &env.path) {
+        if !self.st.book.path_active(&env.key_id, &env.path) {
             return rej("path not an Active entry of COLD's address book");
         }
         let pid = PoolId { key_id: env.key_id, key_version: job.key_version, path: env.path.clone() };
@@ -827,6 +880,9 @@ impl Cold {
                 return rej("ssid mismatch: PROD and COLD disagree about what is signed");
             }
         }
+        // Only a request that passed every check consumes its request_id (a bad job from PROD
+        // cannot burn a genuine request). Kept until not_after + slack on COLD's own clock.
+        self.st.replay.check_and_insert(env.request_id, env.not_after.saturating_add(self.cfg.max_time_skew), cold_now);
         Ok((decoded.clone(), decoded.messages.clone()))
     }
 
@@ -834,7 +890,8 @@ impl Cold {
 
     /// Freeze on own evidence or a peer's notice; notify the other parties.
     pub fn freeze(&mut self, key_id: KeyId, kv: u32, fault: Fault, evidence_hash: B32, from: Option<Role>) {
-        if self.keyring.freeze(&key_id, kv, fault) {
+        if self.st.keyring.freeze(&key_id, kv, fault, evidence_hash) {
+            self.bump_state();
             self.ev(Event::Frozen { key_id, fault });
             let n = FreezeNotice { key_id, key_version: kv, fault, evidence_hash };
             if from != Some(Role::Prod) {
@@ -883,38 +940,31 @@ impl Cold {
         let for_hot = matches!(t, MsgType::RosterUpdate | MsgType::Unfreeze | MsgType::RevocationList | MsgType::AddressBook | MsgType::KeyManifest | MsgType::Activate | MsgType::Retire);
         match t {
             MsgType::RosterUpdate => {
-                self.trust.apply_roster_update(bytes).map_err(|x| e(x.to_string()))?;
+                self.st.trust.apply_roster_update(bytes).map_err(|x| e(x.to_string()))?;
             }
             MsgType::KeyManifest => {
-                self.keyring.install_manifest(&self.trust, bytes).map_err(|x| e(x.to_string()))?;
+                self.st.keyring.install_manifest(&self.st.trust, bytes).map_err(|x| e(x.to_string()))?;
             }
             MsgType::Activate => {
-                self.keyring.apply_activate(&mut self.trust, bytes).map_err(|x| e(x.to_string()))?;
+                self.st.keyring.apply_activate(&mut self.st.trust, bytes).map_err(|x| e(x.to_string()))?;
             }
             MsgType::Retire => {
-                let c = self.keyring.apply_retire(&mut self.trust, bytes).map_err(|x| e(x.to_string()))?;
+                let c = self.st.keyring.apply_retire(&mut self.st.trust, bytes).map_err(|x| e(x.to_string()))?;
                 self.discard_pools(|p| p.key_id == c.key_id && p.key_version == c.key_version, "key version retired");
             }
             MsgType::Unfreeze => {
-                let c = self.keyring.apply_unfreeze(&mut self.trust, bytes).map_err(|x| e(x.to_string()))?;
+                let c = self.st.keyring.apply_unfreeze(&mut self.st.trust, bytes).map_err(|x| e(x.to_string()))?;
                 self.ev(Event::Unfrozen { key_id: c.key_id });
             }
             MsgType::RevocationList => {
-                let newly = self.trust.apply_revocation(bytes).map_err(|x| e(x.to_string()))?;
-                let mut share_side = false;
+                let newly = self.st.trust.apply_revocation(bytes).map_err(|x| e(x.to_string()))?;
+                // Revoking HOT, COLD or PROD discards every pool (DESIGN SP1 §8). A hash alone
+                // does not say whether an unlinked key was HOT/PROD, so anything that is not a
+                // known client (UPSTREAM) discards conservatively.
+                let clients: std::collections::BTreeSet<B32> = self.st.upstream.keys().copied().collect();
+                let share_side = newly.iter().any(|h| !clients.contains(h));
                 for h in &newly {
-                    for (role, l) in [(Role::Hot, &self.hot), (Role::Prod, &self.prod)] {
-                        if l.as_ref().is_some_and(|l| l.peer_signer == *h) {
-                            share_side = true;
-                            let _ = role;
-                        }
-                    }
-                    if self.upstream.remove(h).is_some() {
-                        // revoking UPSTREAM discards no pool
-                    }
-                    if *h == B32(chp_crypto::ident::key_hash(&self.enclave.id.public())) {
-                        share_side = true;
-                    }
+                    self.st.upstream.remove(h);
                 }
                 if self.hot.as_ref().is_some_and(|l| newly.contains(&l.peer_signer)) {
                     self.link_lost(Role::Hot);
@@ -925,29 +975,32 @@ impl Cold {
                 // Revoking HOT, COLD or PROD discards every pool (DESIGN SP1 §8). COLD cannot
                 // tell from the hash alone whether an unlinked party was HOT/PROD, so any
                 // revocation of a non-client discards conservatively.
-                if share_side || newly.iter().any(|h| !self.upstream.contains_key(h)) {
+                if share_side {
                     self.discard_pools(|_| true, "party revoked");
                 }
             }
             MsgType::PolicyBundle => {
-                let pb: PolicyBundle = self.trust.verify_quorum(bytes, MsgType::PolicyBundle).map_err(|x| e(x.to_string()))?;
+                let pb: PolicyBundle = self.st.trust.verify_quorum(bytes, MsgType::PolicyBundle).map_err(|x| e(x.to_string()))?;
                 if pb.target != Role::Cold {
                     return refuse("PolicyBundle addressed to another party");
                 }
-                self.trust.bump_version("policy", pb.version).map_err(|x| e(x.to_string()))?;
-                self.policy.install(pb.version, pb.rules);
+                if self.st.keyring.current(&pb.key_id).is_none() {
+                    return refuse("PolicyBundle for an unknown key");
+                }
+                self.st.trust.bump_version(&format!("policy/{}", hex::encode(pb.key_id.0)), pb.version).map_err(|x| e(x.to_string()))?;
+                self.st.policy.entry(pb.key_id).or_default().install(pb.version, pb.rules);
             }
             MsgType::AddressBook => {
-                let b: AddressBook = self.trust.verify_quorum(bytes, MsgType::AddressBook).map_err(|x| e(x.to_string()))?;
-                let k = self.keyring.get(&b.key_id, b.key_version).ok_or(e("unknown key".into()))?;
+                let b: AddressBook = self.st.trust.verify_quorum(bytes, MsgType::AddressBook).map_err(|x| e(x.to_string()))?;
+                let k = self.st.keyring.get(&b.key_id, b.key_version).ok_or(e("unknown key".into()))?;
                 let (m, h) = (k.manifest.clone(), k.manifest_hash);
-                self.book.install(&self.trust, bytes, &m, &h).map_err(|x| e(x.to_string()))?;
+                self.st.book.install(&self.st.trust, bytes, &m, &h).map_err(|x| e(x.to_string()))?;
             }
             MsgType::PartyCert => {
-                let (c, _) = self.trust.verify_cert(bytes, now).map_err(|x| e(x.to_string()))?;
+                let (c, _) = self.st.trust.verify_cert(bytes, now).map_err(|x| e(x.to_string()))?;
                 match c.role {
                     Role::Upstream => {
-                        self.upstream.insert(B32(chp_crypto::ident::key_hash(&c.id_pk.0)), c);
+                        self.st.upstream.insert(B32(chp_crypto::ident::key_hash(&c.id_pk.0)), c);
                     }
                     Role::Prod => self.queue_for_hot(bytes.to_vec()),
                     _ => return refuse("COLD stores UPSTREAM and PROD certificates only"),
@@ -959,6 +1012,7 @@ impl Cold {
         if for_hot {
             self.queue_for_hot(bytes.to_vec());
         }
+        self.bump_state();
         Ok(())
     }
 
@@ -966,7 +1020,7 @@ impl Cold {
 
     /// Ceremony boot for COLD: `boot_seq[Cold]` = ceremony counter + 1.
     pub fn ceremony_boot(&mut self, open: &[u8], now: u64) -> Result<CeremonyOpen, ColdError> {
-        let o: CeremonyOpen = self.trust.verify_quorum(open, MsgType::CeremonyOpen).map_err(|e| ColdError::Refused(e.to_string()))?;
+        let o: CeremonyOpen = self.st.trust.verify_quorum(open, MsgType::CeremonyOpen).map_err(|e| ColdError::Refused(e.to_string()))?;
         let want = self.enclave.counters.read(CEREMONY_COUNTER) + 1;
         if now > o.not_after || !o.boot_seq.contains(&(Role::Cold, want)) {
             return refuse("ceremony expired or boot_seq mismatch");
@@ -980,20 +1034,27 @@ impl Cold {
     pub fn import_share(&mut self, manifest: &[u8], package: &[u8]) -> Result<Vec<u8>, ColdError> {
         let Some(open) = &self.ceremony else { return refuse("share packages only in ceremony mode") };
         let e = |x: String| ColdError::Refused(x);
-        let entry = self.keyring.install_manifest(&self.trust, manifest).map_err(|x| e(x.to_string()))?.clone();
-        let p: SharePackage = self.trust.verify_quorum(package, MsgType::SharePackage).map_err(|x| e(x.to_string()))?;
+        let entry = self.st.keyring.install_manifest(&self.st.trust, manifest).map_err(|x| e(x.to_string()))?.clone();
+        let p: SharePackage = self.st.trust.verify_quorum(package, MsgType::SharePackage).map_err(|x| e(x.to_string()))?;
         let me = chp_mpc::dkls::PARTY_COLD;
-        if p.manifest_hash != entry.manifest_hash || p.party_index != me || p.ceremony_id != open.ceremony_id || p.key_id != entry.manifest.key_id {
+        if p.manifest_hash != entry.manifest_hash || p.party_index != me || p.ceremony_id != open.ceremony_id || p.key_id != entry.manifest.key_id
+            || p.key_id != open.key_id || !matches!(open.kind, CeremonyKind::Dkg | CeremonyKind::Refresh)
+        {
             return refuse("package does not match manifest / party / ceremony");
+        }
+        let mine = entry.manifest.parties.iter().find(|x| x.role == Role::Cold).map(|x| x.cert_hash);
+        if mine != Some(hash_of(&self.cert)) {
+            return refuse("manifest names another COLD certificate");
         }
         if self.shares.contains_key(&(p.key_id, p.key_version)) {
             return refuse("already imported");
         }
-        let mut info = b"chp-share-v1".to_vec();
+        let mut info = b"chp-share-v2".to_vec();
         info.extend_from_slice(&p.key_id.0);
         info.extend_from_slice(&p.key_version.to_be_bytes());
         info.push(p.party_index);
         info.extend_from_slice(&p.ceremony_id.0);
+        info.extend_from_slice(&p.manifest_hash.0);
         let sealed = chp_crypto::seal::Sealed { enc: p.sealed.enc.0.clone(), ct: p.sealed.ct.0.clone() };
         let bytes = self.enclave.wrap.open(&sealed, &info, &[]).map_err(|x| e(x.to_string()))?;
         let share = share_from_bytes(&bytes).ok_or(e("bad share".into()))?;

@@ -22,7 +22,7 @@ fn signed_count(w: &World) -> usize {
 }
 
 fn frozen(w: &World) -> bool {
-    w.cold.keyring.get(&w.key_id, 1).unwrap().frozen.is_some()
+    w.cold.st.keyring.get(&w.key_id, 1).unwrap().frozen.is_some()
 }
 
 #[tokio::test(flavor = "multi_thread")]

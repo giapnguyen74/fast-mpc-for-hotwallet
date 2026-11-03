@@ -19,6 +19,8 @@ pub struct Decoded {
     pub chain_id: u64,
     /// Calldata present?
     pub has_calldata: bool,
+    /// Maximum fee the transaction can pay (EVM: `gas_limit · max_fee_per_gas`).
+    pub max_fee: u128,
 }
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
@@ -45,6 +47,7 @@ pub fn decode(chain: &str, raw_tx: &[u8]) -> Result<Decoded, ChainError> {
             value: tx.value,
             chain_id: tx.chain_id,
             has_calldata: !tx.data.is_empty(),
+            max_fee: (tx.gas_limit as u128).checked_mul(tx.max_fee).ok_or(ChainError::Malformed("fee overflow"))?,
         });
     }
     Err(ChainError::UnsupportedChain(chain.into()))

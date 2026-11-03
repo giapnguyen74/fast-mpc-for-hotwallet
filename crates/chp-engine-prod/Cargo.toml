@@ -21,3 +21,7 @@ ciborium = { workspace = true }
 rand = { workspace = true }
 hex = { workspace = true }
 thiserror = { workspace = true }
+
+[features]
+# Simulation / test hooks modelling a compromised PROD. Never enable in a release build.
+sim-hooks = ["chp-crypto/sim-hooks"]

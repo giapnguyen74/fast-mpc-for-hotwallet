@@ -146,7 +146,7 @@
     "from": "HOT",
     "to": "QUORUM",
     "label": "Y fingerprint",
-    "detail": "03a6918fe435414845",
+    "detail": "da8c0162b6085a978b713404eb604bb1",
     "cls": "quorum"
   },
   {
@@ -154,7 +154,7 @@
     "from": "COLD",
     "to": "QUORUM",
     "label": "Y fingerprint",
-    "detail": "03a6918fe435414845",
+    "detail": "da8c0162b6085a978b713404eb604bb1",
     "cls": "quorum"
   },
   {
@@ -162,7 +162,7 @@
     "from": "REC",
     "to": "QUORUM",
     "label": "Y fingerprint",
-    "detail": "03a6918fe435414845",
+    "detail": "da8c0162b6085a978b713404eb604bb1",
     "cls": "quorum"
   },
   {
@@ -171,7 +171,7 @@
   },
   {
     "kind": "note",
-    "text": "Y fingerprints read aloud: HOT 03a6918fe435414845  COLD 03a6918fe435414845  REC 03a6918fe435414845  → equal"
+    "text": "Y fingerprints read aloud: HOT da8c0162b6085a978b713404eb604bb1  COLD da8c0162b6085a978b713404eb604bb1  REC da8c0162b6085a978b713404eb604bb1  → equal"
   },
   {
     "kind": "note",
@@ -179,7 +179,7 @@
   },
   {
     "kind": "note",
-    "text": "quorum signs KeyManifest{key_id 95b370dd, version 1, Y, public shares}"
+    "text": "quorum signs KeyManifest{key_id 87a0f391, version 1, Y, public shares}"
   },
   {
     "kind": "note",
@@ -330,7 +330,7 @@
   },
   {
     "kind": "note",
-    "text": "hot address for m/hot/0: 0x248f95ba8e11dcfa380a06ff3af80fc8f5205c23"
+    "text": "hot address for m/hot/0: 0xd6e89037f6be2311bab90fd989742aac29f4eeab"
   },
   {
     "kind": "step",
@@ -402,7 +402,7 @@
   {
     "kind": "event",
     "who": "COLD",
-    "text": "COLD wake digest b3b033006f67dc86",
+    "text": "COLD wake digest f889454cc7e71413",
     "level": "display"
   },
   {
@@ -416,7 +416,7 @@
   {
     "kind": "event",
     "who": "HOT",
-    "text": "HOT wake digest b3b033006f67dc86",
+    "text": "HOT wake digest f889454cc7e71413",
     "level": "display"
   },
   {
@@ -506,7 +506,7 @@
     "from": "HOT",
     "to": "MEDIA",
     "label": "MediaBundle",
-    "detail": "2408 bytes, sealed to PROD",
+    "detail": "2412 bytes, sealed to PROD",
     "cls": "media"
   },
   {
@@ -564,7 +564,7 @@
     "from": "HOT",
     "to": "MEDIA",
     "label": "MediaBundle",
-    "detail": "2402 bytes, sealed to PROD",
+    "detail": "2409 bytes, sealed to PROD",
     "cls": "media"
   },
   {
@@ -669,7 +669,7 @@
   {
     "kind": "event",
     "who": "COLD",
-    "text": "batch 50a9760e → Active",
+    "text": "batch 4a412f48 → Active",
     "level": "info"
   },
   {
@@ -683,7 +683,7 @@
   {
     "kind": "event",
     "who": "PROD",
-    "text": "batch 50a9760e → Active",
+    "text": "batch 4a412f48 → Active",
     "level": "info"
   },
   {
@@ -723,7 +723,7 @@
   {
     "kind": "event",
     "who": "COLD",
-    "text": "batch 9e7cc735 → Active",
+    "text": "batch 25e2e9ac → Active",
     "level": "info"
   },
   {
@@ -737,7 +737,7 @@
   {
     "kind": "event",
     "who": "PROD",
-    "text": "batch 9e7cc735 → Active",
+    "text": "batch 25e2e9ac → Active",
     "level": "info"
   },
   {
@@ -769,7 +769,7 @@
   },
   {
     "kind": "note",
-    "text": "UPSTREAM signs WithdrawalEnvelope{request 5825a579, 1 ETH to the allowlisted address, path m/hot/0, not_after +120s}"
+    "text": "UPSTREAM signs WithdrawalEnvelope{request d10c6ef5, 1 ETH to the allowlisted address, path m/hot/0, not_after +120s}"
   },
   {
     "kind": "note",
@@ -798,7 +798,7 @@
   {
     "kind": "event",
     "who": "COLD",
-    "text": "signed request 5825a579 → txid 8c56ccad",
+    "text": "signed request d10c6ef5 → txid e5f71a2f",
     "level": "ok"
   },
   {
@@ -814,7 +814,7 @@
     "from": "PROD",
     "to": "CHAIN",
     "label": "broadcast",
-    "detail": "txid 8c56ccad",
+    "detail": "txid e5f71a2f",
     "cls": "chain"
   },
   {
@@ -849,7 +849,7 @@
   },
   {
     "kind": "note",
-    "text": "signature recovers to 0x248f95ba8e11dcfa380a06ff3af80fc8f5205c23 == quorum-signed book address ✔ true"
+    "text": "signature recovers to 0xd6e89037f6be2311bab90fd989742aac29f4eeab == quorum-signed book address ✔ true"
   },
   {
     "kind": "step",
@@ -882,7 +882,7 @@
   },
   {
     "kind": "note",
-    "text": "requester verifies with the pinned roster only: quorum sigs ✔ address re-derived ✔ control sig by the key ✔ active ✔ → 0x248f95ba8e11dcfa380a06ff3af80fc8f5205c23"
+    "text": "requester verifies with the pinned roster only: quorum sigs ✔ address re-derived ✔ control sig by the key ✔ active ✔ → 0xd6e89037f6be2311bab90fd989742aac29f4eeab"
   },
   {
     "kind": "step",
@@ -1112,7 +1112,7 @@
   },
   {
     "kind": "note",
-    "text": "UPSTREAM signs WithdrawalEnvelope{request 29b2260b, 2 ETH, path m/hot/0, not_after +120s}"
+    "text": "UPSTREAM signs WithdrawalEnvelope{request 4fc3352f, 2 ETH, path m/hot/0, not_after +120s}"
   },
   {
     "kind": "note",
@@ -1141,7 +1141,7 @@
   {
     "kind": "event",
     "who": "COLD",
-    "text": "signed request 29b2260b → txid 2cb39833",
+    "text": "signed request 4fc3352f → txid 5ae79c33",
     "level": "ok"
   },
   {
@@ -1157,7 +1157,7 @@
     "from": "PROD",
     "to": "CHAIN",
     "label": "broadcast",
-    "detail": "txid 2cb39833",
+    "detail": "txid 5ae79c33",
     "cls": "chain"
   },
   {
@@ -1337,6 +1337,12 @@
     "level": "display"
   },
   {
+    "kind": "event",
+    "who": "PROD",
+    "text": "discarded pool *: party revoked",
+    "level": "warn"
+  },
+  {
     "kind": "state",
     "hot_on": true,
     "hot_counter": 2,
@@ -1373,7 +1379,7 @@
   {
     "kind": "event",
     "who": "COLD",
-    "text": "COLD wake digest 67f2a3ada2f97e78",
+    "text": "COLD wake digest f706fd7dbee1720c",
     "level": "display"
   },
   {
@@ -1387,7 +1393,7 @@
   {
     "kind": "event",
     "who": "HOT",
-    "text": "HOT wake digest 67f2a3ada2f97e78",
+    "text": "HOT wake digest f706fd7dbee1720c",
     "level": "display"
   },
   {
@@ -1525,7 +1531,7 @@
     "from": "HOT",
     "to": "MEDIA",
     "label": "MediaBundle",
-    "detail": "2404 bytes, sealed to PROD",
+    "detail": "2411 bytes, sealed to PROD",
     "cls": "media"
   },
   {
@@ -1625,7 +1631,7 @@
   {
     "kind": "event",
     "who": "COLD",
-    "text": "batch 64a8926b → Active",
+    "text": "batch ea2a57cb → Active",
     "level": "info"
   },
   {
@@ -1639,7 +1645,7 @@
   {
     "kind": "event",
     "who": "PROD",
-    "text": "batch 64a8926b → Active",
+    "text": "batch ea2a57cb → Active",
     "level": "info"
   },
   {
@@ -1662,7 +1668,7 @@
   },
   {
     "kind": "note",
-    "text": "UPSTREAM signs WithdrawalEnvelope{request 724ff39c, 1 ETH via the new PROD, path m/hot/0, not_after +120s}"
+    "text": "UPSTREAM signs WithdrawalEnvelope{request 69753e83, 1 ETH via the new PROD, path m/hot/0, not_after +120s}"
   },
   {
     "kind": "note",
@@ -1691,7 +1697,7 @@
   {
     "kind": "event",
     "who": "COLD",
-    "text": "signed request 724ff39c → txid dd56bbc1",
+    "text": "signed request 69753e83 → txid 59107080",
     "level": "ok"
   },
   {
@@ -1707,7 +1713,7 @@
     "from": "PROD",
     "to": "CHAIN",
     "label": "broadcast",
-    "detail": "txid dd56bbc1",
+    "detail": "txid 59107080",
     "cls": "chain"
   },
   {
@@ -1775,7 +1781,7 @@
   },
   {
     "kind": "note",
-    "text": "auditor asks about 0x7c808a5c98f847cb1cc904352349f859ed127f61 → proof verifies offline: true"
+    "text": "auditor asks about 0x0050977054d71d240f1b11873b4d5dccdb4f1d29 → proof verifies offline: true"
   },
   {
     "kind": "msg",
@@ -1829,15 +1835,15 @@
   },
   {
     "kind": "note",
-    "text": "  txid 8c56ccadb476c760  from 0x248f95ba8e11dcfa380a06ff3af80fc8f5205c23"
+    "text": "  txid e5f71a2ff15630f4  from 0xd6e89037f6be2311bab90fd989742aac29f4eeab"
   },
   {
     "kind": "note",
-    "text": "  txid 2cb3983385fa8ebf  from 0x248f95ba8e11dcfa380a06ff3af80fc8f5205c23"
+    "text": "  txid 5ae79c33a155b0ed  from 0xd6e89037f6be2311bab90fd989742aac29f4eeab"
   },
   {
     "kind": "note",
-    "text": "  txid dd56bbc1df732765  from 0x248f95ba8e11dcfa380a06ff3af80fc8f5205c23"
+    "text": "  txid 59107080beb8198a  from 0xd6e89037f6be2311bab90fd989742aac29f4eeab"
   },
   {
     "kind": "note",

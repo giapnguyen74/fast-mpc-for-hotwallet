@@ -3,9 +3,11 @@
 //! The library speaks through a pull-style [`Relay`]. CHP never lets the library touch a
 //! network: [`BridgeRelay`] hands every outgoing library message to the caller (which wraps
 //! it in a signed CHP frame, DESIGN SP1 §5) and receives incoming library messages only
-//! after the caller has verified the CHP frame. Library "ask" messages are local and dropped:
-//! the CHP side pushes every message to every other participant, and the library ignores
-//! messages it did not ask for.
+//! after the caller has verified the CHP frame. Library "ask" requests are answered locally
+//! (`Relay::ask` is a no-op): the CHP side pushes every message to every other participant,
+//! and the library ignores messages it did not ask for. Every message the library *sends* is
+//! forwarded, including header-only abort messages (security review: filtering by length
+//! dropped aborts, so a peer waited forever).
 //!
 //! Library-level message signing is disabled (`NoSigningKey`): authentication is the CHP
 //! frame signature (enclave identity key), checked before the bytes reach the library.
@@ -25,7 +27,10 @@ use sl_dkls23::{
     sign::PreSign,
     InstanceId, Relay,
 };
-use sl_mpc_mate::{coord::MessageSendError, message::MESSAGE_HEADER_SIZE};
+use sl_mpc_mate::{
+    coord::{MaybeFeed, MessageSendError},
+    message::MsgId,
+};
 use tokio::sync::mpsc;
 
 use chp_crypto::{hash::tagged_hash, CryptoError};
@@ -71,9 +76,6 @@ impl Sink<Vec<u8>> for BridgeRelay {
         Poll::Ready(Ok(()))
     }
     fn start_send(self: Pin<&mut Self>, item: Vec<u8>) -> Result<(), Self::Error> {
-        if item.len() == MESSAGE_HEADER_SIZE {
-            return Ok(()); // "ask" message: local only.
-        }
         self.out.send(item).map_err(|_| MessageSendError)
     }
     fn poll_flush(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
@@ -84,7 +86,12 @@ impl Sink<Vec<u8>> for BridgeRelay {
     }
 }
 
-impl Relay for BridgeRelay {}
+impl Relay for BridgeRelay {
+    /// "Ask" requests are local: nothing is sent.
+    fn ask(&mut self, _id: &MsgId, _ttl: u32) -> MaybeFeed<'_, Self> {
+        MaybeFeed::skip()
+    }
+}
 
 /// DKLs23 instance id for one presignature: `H("chp-presign-v1" ‖ batch_id ‖ presig_id)`
 /// (DESIGN SP4 §4 step 3).

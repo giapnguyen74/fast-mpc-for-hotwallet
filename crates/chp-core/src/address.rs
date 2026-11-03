@@ -89,11 +89,24 @@ pub enum ProofError {
     ProdSig,
     #[error("entry not in book")]
     NotInBook,
+    #[error("the proof answers a different address than the one asked")]
+    WrongEntry,
+}
+
+/// What the requester asked (the proof must answer exactly this).
+pub struct Asked<'a> {
+    pub request_id: B32,
+    pub nonce: B32,
+    pub chain: &'a str,
+    pub address: Option<&'a str>,
+    pub path: Option<&'a str>,
 }
 
 /// Requester-side verification of an `AddressProof` (SP10 §4), in order. Needs only the pinned
-/// roster (`trust`), the last accepted book version and the requester's nonce.
-pub fn verify_proof(trust: &Trust, proof_frame: &[u8], nonce: &B32, last_book: u64, now: u64) -> Result<AddressEntry, ProofError> {
+/// roster (`trust`), the last accepted book version and the query. The entry must answer the
+/// query (chain, address and/or path): a valid proof for *another* address is an alarm.
+pub fn verify_proof(trust: &Trust, proof_frame: &[u8], asked: &Asked<'_>, last_book: u64, now: u64) -> Result<AddressEntry, ProofError> {
+    let nonce = &asked.nonce;
     let f: SignedMsg = decode_canonical(proof_frame).map_err(|e| ProofError::Quorum(e.to_string()))?;
     let p: AddressProof = decode_canonical(&f.body.0).map_err(|e| ProofError::Quorum(e.to_string()))?;
     // 1
@@ -104,6 +117,13 @@ pub fn verify_proof(trust: &Trust, proof_frame: &[u8], nonce: &B32, last_book: u
     }
     if !b.entries.contains(&p.entry) {
         return Err(ProofError::NotInBook);
+    }
+    if p.entry.chain != asked.chain
+        || asked.address.is_some_and(|a| !p.entry.address.eq_ignore_ascii_case(a))
+        || asked.path.is_some_and(|x| p.entry.path != x)
+        || (asked.address.is_none() && asked.path.is_none())
+    {
+        return Err(ProofError::WrongEntry);
     }
     // 2
     if b.book_version < last_book {
@@ -126,7 +146,7 @@ pub fn verify_proof(trust: &Trust, proof_frame: &[u8], nonce: &B32, last_book: u
     chp_auth::link::check_standalone(&cert, chp_wire::Role::Upstream, proof_frame, MsgType::AddressProof)
         .or_else(|_| chp_auth::link::check_standalone(&cert, chp_wire::Role::Requester, proof_frame, MsgType::AddressProof))
         .map_err(|_| ProofError::ProdSig)?;
-    if p.nonce != *nonce {
+    if p.nonce != *nonce || p.request_id != asked.request_id {
         return Err(ProofError::ProdSig);
     }
     Ok(p.entry)

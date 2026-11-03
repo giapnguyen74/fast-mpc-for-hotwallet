@@ -158,6 +158,7 @@ pub fn policy_rules(max_per_tx: &str) -> PolicyRules {
         allowlist: vec![DEST.into()],
         chain_ids: vec![31337],
         allow_calldata: false,
+        max_fee_per_tx: "1000000000000000000".into(),
     }
 }
 
@@ -241,8 +242,9 @@ impl World {
         let hr = hot.import_share(&dkg.manifest, &dkg.hot_package).expect("hot import");
         let cr = cold.import_share(&dkg.manifest, &dkg.cold_package).expect("cold import");
         let mh = chp_core::digest::hash_of(&dkg.manifest);
-        check_receipt(&hr, &hc, &mh).expect("hot receipt");
-        check_receipt(&cr, &cc, &mh).expect("cold receipt");
+        let man: KeyManifest = hot.trust.verify_quorum(&dkg.manifest, MsgType::KeyManifest).unwrap();
+        check_receipt(&hr, &hot_cert, &hc, &man, &mh).expect("hot receipt");
+        check_receipt(&cr, &cold_cert, &cc, &man, &mh).expect("cold receipt");
         say(n, "  HOT, COLD: ceremony boot (boot_seq = counter + 1) → HPKE-open own package → check s_i·G == Y_i");
         if n {
             trace::msg("QUORUM", "HOT", "SharePackage", "HPKE(s_HOT → HOT.wrap_pk)", "quorum");
@@ -458,7 +460,7 @@ impl World {
             hot_on: self.hot_on,
             hot_counter: self.hot.wake_counter(),
             frozen_hot: fz(&self.hot.keyring),
-            frozen_cold: fz(&self.cold.keyring),
+            frozen_cold: fz(&self.cold.st.keyring),
             frozen_prod: fz(&self.prod.keyring),
             prod_pool: self.prod.available(&pool),
             cold_pool: self.cold.pool(&pool).map(|p| p.active_ids().len()).unwrap_or(0),
@@ -611,8 +613,8 @@ impl World {
             raw_tx: Bytes(raw_tx),
             inputs: 1,
             path: path.into(),
-            prod_policy_ver: self.prod.policy.version,
-            cold_policy_ver: self.cold.policy.version,
+            prod_policy_ver: self.prod.policy_version(&self.key_id),
+            cold_policy_ver: self.cold.policy_version(&self.key_id),
             not_after: self.now + 120,
             upstream_time: self.now,
         };
@@ -633,10 +635,12 @@ impl World {
         self.cold.job_status(job_seq).map(|s| decode_canonical(&s).unwrap())
     }
 
-    /// Quorum `Unfreeze` to COLD and PROD (and queued for HOT).
+    /// Quorum `Unfreeze` to COLD and PROD (and queued for HOT). It names the evidence of the
+    /// freeze in force at COLD (the same evidence travelled in the FreezeNotice).
     pub fn unfreeze(&mut self) -> Vec<u8> {
         self.unfreeze_ver += 1;
-        let u = self.q.ceremony.sign(self.q.m, MsgType::Unfreeze, &KeyControl { key_id: self.key_id, key_version: 1, version: self.unfreeze_ver });
+        let evidence_hash = self.cold.st.keyring.get(&self.key_id, 1).and_then(|e| e.freeze_evidence).unwrap_or_default();
+        let u = self.q.ceremony.sign(self.q.m, MsgType::Unfreeze, &UnfreezeBody { key_id: self.key_id, key_version: 1, version: self.unfreeze_ver, evidence_hash });
         self.cold.apply_quorum(&u, self.now).unwrap();
         self.prod.apply_quorum(&u, self.now).unwrap();
         u

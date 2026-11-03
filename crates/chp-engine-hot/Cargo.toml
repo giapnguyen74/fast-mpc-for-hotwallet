@@ -17,3 +17,4 @@ serde = { workspace = true }
 rand = { workspace = true }
 hex = { workspace = true }
 thiserror = { workspace = true }
+zeroize = { workspace = true }

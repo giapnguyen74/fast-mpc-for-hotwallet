@@ -38,8 +38,9 @@ impl WrapKey {
         out.copy_from_slice(&self.pk.to_bytes());
         out
     }
-    /// Open a payload sealed to this key with the given `info` and `aad`.
-    pub fn open(&self, sealed: &Sealed, info: &[u8], aad: &[u8]) -> Result<Vec<u8>, CryptoError> {
+    /// Open a payload sealed to this key with the given `info` and `aad`. The plaintext is
+    /// zeroized when dropped (it may hold halves, fragments or shares).
+    pub fn open(&self, sealed: &Sealed, info: &[u8], aad: &[u8]) -> Result<zeroize::Zeroizing<Vec<u8>>, CryptoError> {
         let enc = <Kem as hpke::Kem>::EncappedKey::from_bytes(&sealed.enc)
             .map_err(|_| CryptoError::Hpke)?;
         hpke::single_shot_open::<ChaCha20Poly1305, HkdfSha256, Kem>(
@@ -50,6 +51,7 @@ impl WrapKey {
             &sealed.ct,
             aad,
         )
+        .map(zeroize::Zeroizing::new)
         .map_err(|_| CryptoError::Hpke)
     }
 }
@@ -85,7 +87,7 @@ mod tests {
         let k = WrapKey::generate(&mut rng);
         let other = WrapKey::generate(&mut rng);
         let s = seal(&k.public(), b"info", b"aad", b"secret", &mut rng).unwrap();
-        assert_eq!(k.open(&s, b"info", b"aad").unwrap(), b"secret");
+        assert_eq!(k.open(&s, b"info", b"aad").unwrap().as_slice(), b"secret");
         // wrong recipient, wrong info, wrong aad, tampered ciphertext: all fail.
         assert!(other.open(&s, b"info", b"aad").is_err());
         assert!(k.open(&s, b"other", b"aad").is_err());

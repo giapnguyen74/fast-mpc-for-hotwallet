@@ -9,14 +9,14 @@ description = "In-process CHP simulator: all parties, operators, media, chain, a
 [dependencies]
 chp-wire = { workspace = true }
 chp-auth = { workspace = true }
-chp-crypto = { workspace = true }
+chp-crypto = { workspace = true, features = ["sim-hooks"] }
 chp-tee = { workspace = true }
 chp-core = { workspace = true }
 chp-chain = { workspace = true }
 chp-ceremony = { workspace = true }
 chp-engine-hot = { workspace = true }
-chp-engine-cold = { workspace = true }
-chp-engine-prod = { workspace = true }
+chp-engine-cold = { workspace = true, features = ["sim-hooks"] }
+chp-engine-prod = { workspace = true, features = ["sim-hooks"] }
 k256 = { workspace = true }
 rand = { workspace = true }
 hex = { workspace = true }

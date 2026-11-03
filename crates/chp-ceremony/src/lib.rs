@@ -161,13 +161,14 @@ async fn two_party_sign(a: &Arc<Keyshare>, b: &Arc<Keyshare>, key_id: &KeyId, pa
     Ok(s.sig)
 }
 
-/// HPKE `info` of a share package (DESIGN SP3 §4 step 1).
-pub fn share_info(key_id: &KeyId, version: u32, party_index: u8, ceremony_id: &B32) -> Vec<u8> {
-    let mut v = b"chp-share-v1".to_vec();
+/// HPKE `info` of a share package (DESIGN SP3 §4 step 1), also binding the manifest hash.
+pub fn share_info(key_id: &KeyId, version: u32, party_index: u8, ceremony_id: &B32, manifest_hash: &B32) -> Vec<u8> {
+    let mut v = b"chp-share-v2".to_vec();
     v.extend_from_slice(&key_id.0);
     v.extend_from_slice(&version.to_be_bytes());
     v.push(party_index);
     v.extend_from_slice(&ceremony_id.0);
+    v.extend_from_slice(&manifest_hash.0);
     v
 }
 
@@ -193,7 +194,8 @@ pub async fn run_dkg(q: &Quorum, chain: &str, paths: &[&str], r: Recipients<'_>,
         .collect();
     let (h, c, rec) = (&shares[PARTY_HOT as usize], &shares[PARTY_COLD as usize], &shares[PARTY_REC as usize]);
     // Agreement: every party outputs the same Y and public-share list; custodians compare.
-    let fps: Vec<String> = shares.iter().map(|s| hex::encode(&enc_point(&s.public_key())[..9])).collect();
+    // 128-bit fingerprint of Y for the custodians to compare (security review: 9 bytes was ~64 bits).
+    let fps: Vec<String> = shares.iter().map(|s| hex::encode(&chp_crypto::hash::tagged_hash(b"chp-y-fingerprint-v1", &[&enc_point(&s.public_key())])[..16])).collect();
     if fps[0] != fps[1] || fps[1] != fps[2] {
         return fail("Y fingerprints differ: ceremony aborted");
     }
@@ -233,7 +235,7 @@ pub async fn run_dkg(q: &Quorum, chain: &str, paths: &[&str], r: Recipients<'_>,
     // SP3 export: HPKE-seal each live share to its recipient's attested wrap_pk.
     let mut rng = rand::thread_rng();
     let mut package = |share: &Keyshare, idx: u8, wrap: &B32| -> Result<Vec<u8>, CeremonyError> {
-        let s = seal(&wrap.0, &share_info(&key_id, 1, idx, &ceremony_id), &[], &share_to_bytes(share), &mut rng).map_err(|e| CeremonyError::Failed(e.to_string()))?;
+        let s = seal(&wrap.0, &share_info(&key_id, 1, idx, &ceremony_id, &manifest_hash), &[], &share_to_bytes(share), &mut rng).map_err(|e| CeremonyError::Failed(e.to_string()))?;
         Ok(q.sign(MsgType::SharePackage, &SharePackage { key_id, key_version: 1, party_index: idx, ceremony_id, manifest_hash, sealed: Sealed { enc: Bytes(s.enc), ct: Bytes(s.ct) } }))
     };
     let hot_package = package(h, PARTY_HOT, &r.hot.wrap_pk)?;
@@ -255,12 +257,22 @@ fn y_i(s: &Keyshare, party: u8) -> k256::ProjectivePoint {
     s.big_s(party)
 }
 
-/// Verify a `ShareReceipt` against the manifest before signing `Activate` (DESIGN SP3 §4 step 5).
-pub fn check_receipt(receipt: &[u8], cert: &PartyCert, manifest_hash: &B32) -> Result<ShareReceipt, CeremonyError> {
+/// Verify a `ShareReceipt` against the manifest before signing `Activate` (DESIGN SP3 §4 step 5):
+/// signed by the enrolled certificate named in the manifest for that role, for this key and
+/// version, with the party index and public share the manifest lists.
+pub fn check_receipt(receipt: &[u8], cert_bytes: &[u8], cert: &PartyCert, manifest: &KeyManifest, manifest_hash: &B32) -> Result<ShareReceipt, CeremonyError> {
     let (_, body) = chp_auth::link::check_standalone(cert, Role::Rec, receipt, MsgType::ShareReceipt).map_err(|e| CeremonyError::Failed(e.to_string()))?;
     let r: ShareReceipt = chp_wire::decode_canonical(&body).map_err(|e| CeremonyError::Failed(e.to_string()))?;
-    if r.manifest_hash != *manifest_hash || r.measurement != cert.measurement {
-        return fail("receipt does not match the manifest or the enrolled measurement");
+    let Some(entry) = manifest.parties.iter().find(|p| p.role == cert.role) else { return fail("role not in manifest") };
+    if r.manifest_hash != *manifest_hash
+        || r.measurement != cert.measurement
+        || r.key_id != manifest.key_id
+        || r.key_version != manifest.key_version
+        || r.party_index != entry.party_index
+        || r.public_share != entry.public_share
+        || entry.cert_hash != chp_core::digest::hash_of(cert_bytes)
+    {
+        return fail("receipt does not match the manifest, the party or the enrolled certificate");
     }
     Ok(r)
 }

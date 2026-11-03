@@ -24,3 +24,7 @@ zeroize = { workspace = true }
 
 [dev-dependencies]
 proptest = { workspace = true }
+
+[features]
+# Simulation / test helpers that copy secrets (breach models). Never enable in a release build.
+sim-hooks = []

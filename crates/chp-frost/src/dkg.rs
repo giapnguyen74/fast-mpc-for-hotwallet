@@ -85,7 +85,7 @@ pub fn run_dkg_2of3<C: Ciphersuite, R: RngCore + CryptoRng>(
 // ---------------------------------------------------------------------------
 
 /// Raw view of one party's secp256k1 key material.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy)]
 pub struct SecpParty {
     /// Identifier scalar `i`.
     pub id: k256::Scalar,
@@ -143,7 +143,7 @@ pub fn secp_verifying_share(
 // ---------------------------------------------------------------------------
 
 /// Raw view of one party's Ed25519 key material.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy)]
 pub struct EdParty {
     /// Identifier scalar `i`.
     pub id: curve25519_dalek::Scalar,
@@ -191,4 +191,18 @@ pub fn ed_verifying_share(
 ) -> Result<curve25519_dalek::EdwardsPoint, Error> {
     let vs = pkp.verifying_shares().get(id).ok_or(Error::BadIdentifiers)?;
     ed_point(&vs.serialize().map_err(ferr)?)
+}
+
+/// Redacted: the long-term share is never printed (security review).
+impl core::fmt::Debug for SecpParty {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("SecpParty").field("id", &self.id).field("share", &"<redacted>").finish()
+    }
+}
+
+/// Redacted: the long-term share is never printed (security review).
+impl core::fmt::Debug for EdParty {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("EdParty").field("id", &self.id).field("share", &"<redacted>").finish()
+    }
 }

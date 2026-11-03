@@ -7,7 +7,7 @@
 //! as the engines record them.
 
 use chp_auth::{sign_body, trust::Trust};
-use chp_core::{address::verify_proof, digest::ssid};
+use chp_core::{address::{verify_proof, Asked}, digest::ssid};
 use chp_crypto::{derive::t_path, ecdsa::prod_fragment, ident::IdKey};
 use chp_sim::{trace, *};
 use chp_wire::{decode_canonical, msgs::*, Bytes, MsgType, Role, B32};
@@ -117,7 +117,8 @@ async fn main() {
     // ------------------------------------------------------------------ address proof
     step("SP10", "Address proof for a depositor, verified offline");
     let nonce = B32(rand::random());
-    let q = AddressQuery { request_id: B32(rand::random()), chain: CHAIN.into(), address: None, path: Some(PATH.into()), nonce, not_after: w.now + 60 };
+    let request_id = B32(rand::random());
+    let q = AddressQuery { request_id, chain: CHAIN.into(), address: None, path: Some(PATH.into()), nonce, not_after: w.now + 60 };
     let qf = sign_body(&w.requester, MsgType::AddressQuery, 0, &q);
     note("requester → PROD AddressQuery{path, nonce} (signed by the enrolled requester)");
     trace::msg("REQUESTER", "PROD", "AddressQuery", format!("path {PATH}"), "api");
@@ -125,7 +126,7 @@ async fn main() {
     trace::msg("PROD", "REQUESTER", "AddressProof", "book + manifest + PROD sig", "api");
     note("PROD → requester AddressProof{entry, AddressBook, KeyManifest, PROD cert} signed by PROD");
     let pinned_only = Trust::new(&w.q.pinned());
-    let e = verify_proof(&pinned_only, &proof, &nonce, 0, w.now).unwrap();
+    let e = verify_proof(&pinned_only, &proof, &Asked { request_id, nonce, chain: CHAIN, address: None, path: Some(PATH) }, 0, w.now).unwrap();
     note(&format!("requester verifies with the pinned roster only: quorum sigs ✔ address re-derived ✔ control sig by the key ✔ active ✔ → {}", e.address));
 
     // ------------------------------------------------------------------ attack + freeze
@@ -223,11 +224,13 @@ async fn main() {
     trace::msg("QUORUM", "PROD", "PartyCert (auditor)", "enrolled requester", "quorum");
     note("quorum signs PartyCert{role Requester}; PROD enrolls it");
     let nonce = B32(rand::random());
-    let q = AddressQuery { request_id: B32(rand::random()), chain: CHAIN.into(), address: Some(book_address(&w, PATH2)), path: None, nonce, not_after: w.now + 60 };
+    let request_id = B32(rand::random());
+    let addr2 = book_address(&w, PATH2);
+    let q = AddressQuery { request_id, chain: CHAIN.into(), address: Some(addr2.clone()), path: None, nonce, not_after: w.now + 60 };
     let proof = w.prod.address_query(&sign_body(&auditor, MsgType::AddressQuery, 0, &q), w.now).unwrap();
     trace::msg("REQUESTER", "PROD", "AddressQuery", "auditor: hot address 2", "api");
     trace::msg("PROD", "REQUESTER", "AddressProof", "verifies offline", "api");
-    let ok = verify_proof(&pinned_only, &proof, &nonce, 0, w.now).is_ok();
+    let ok = verify_proof(&pinned_only, &proof, &Asked { request_id, nonce, chain: CHAIN, address: Some(&addr2), path: None }, 0, w.now).is_ok();
     note(&format!("auditor asks about {} → proof verifies offline: {ok}", book_address(&w, PATH2)));
     let q2 = AddressQuery { request_id: B32(rand::random()), chain: CHAIN.into(), address: Some(ATTACKER.into()), path: None, nonce: B32(rand::random()), not_after: w.now + 60 };
     let nf = w.prod.address_query(&sign_body(&auditor, MsgType::AddressQuery, 0, &q2), w.now).unwrap();

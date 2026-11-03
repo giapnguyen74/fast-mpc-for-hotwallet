@@ -153,34 +153,34 @@ fn frame_check_steps_in_order_and_refusals_change_nothing() {
     // step 1: unknown type
     let mut unk = sign_msg(&prod.id, MsgType::FreezeNotice, 1, encode(&freeze_body()));
     unk.msg_type = 999;
-    assert_eq!(l.check(&t, &encode(&unk)), Err(AuthError::UnknownType(999)));
+    assert_eq!(l.check(&t, NOW, &encode(&unk)), Err(AuthError::UnknownType(999)));
     // step 2: wrong signer
     let other = IdKey::generate(&mut rand::thread_rng());
-    assert_eq!(l.check(&t, &encode(&sign_msg(&other, MsgType::FreezeNotice, 1, encode(&freeze_body())))), Err(AuthError::WrongSigner));
+    assert_eq!(l.check(&t, NOW, &encode(&sign_msg(&other, MsgType::FreezeNotice, 1, encode(&freeze_body())))), Err(AuthError::WrongSigner));
     // step 3: gap
     let gap = encode(&sign_msg(&prod.id, MsgType::FreezeNotice, 2, encode(&freeze_body())));
-    assert!(matches!(l.check(&t, &gap), Err(AuthError::BadSeq { got: 2, want: 1 })));
+    assert!(matches!(l.check(&t, NOW, &gap), Err(AuthError::BadSeq { got: 2, want: 1 })));
     // step 4: role (PROD may not send PresignActivate)
     let bd = BatchDigest { batch_id: B32([0; 32]), digest: B32([0; 32]) };
     let act = encode(&sign_msg(&prod.id, MsgType::PresignActivate, 1, encode(&bd)));
-    assert!(matches!(l.check(&t, &act), Err(AuthError::RoleNotAllowed { .. })));
+    assert!(matches!(l.check(&t, NOW, &act), Err(AuthError::RoleNotAllowed { .. })));
     // step 5: tampered body
     let mut tam = sign_msg(&prod.id, MsgType::FreezeNotice, 1, encode(&freeze_body()));
     let mut fb = freeze_body();
     fb.fault = Fault::Presign;
     tam.body = encode(&fb).into();
-    assert_eq!(l.check(&t, &encode(&tam)), Err(AuthError::BadSignature));
+    assert_eq!(l.check(&t, NOW, &encode(&tam)), Err(AuthError::BadSignature));
     // step 6: body of the wrong shape (signed correctly)
     let wrong = encode(&sign_msg(&prod.id, MsgType::FreezeNotice, 1, encode(&bd)));
-    assert!(matches!(l.check(&t, &wrong), Err(AuthError::Body(_))));
+    assert!(matches!(l.check(&t, NOW, &wrong), Err(AuthError::Body(_))));
 
     // none of the refusals advanced the sequence: seq 1 is still accepted
-    assert_eq!(l.check(&t, &ok1).unwrap().0, MsgType::FreezeNotice);
+    assert_eq!(l.check(&t, NOW, &ok1).unwrap().0, MsgType::FreezeNotice);
     // replay refused
-    assert!(matches!(l.check(&t, &ok1), Err(AuthError::BadSeq { got: 1, want: 2 })));
+    assert!(matches!(l.check(&t, NOW, &ok1), Err(AuthError::BadSeq { got: 1, want: 2 })));
     // streams are independent: a stream-A message starts at seq 1
     let job_like = encode(&sign_msg(&prod.id, MsgType::TransferAck, 2, encode(&bd)));
-    assert_eq!(l.check(&t, &job_like).unwrap().0, MsgType::TransferAck); // stream C seq 2
+    assert_eq!(l.check(&t, NOW, &job_like).unwrap().0, MsgType::TransferAck); // stream C seq 2
 }
 
 #[test]
@@ -203,7 +203,7 @@ fn exhaustive_role_matrix_on_links() {
             for ty in MsgType::ALL.iter().copied().filter(|m| m.stream().is_some() && *m != MsgType::LinkHello) {
                 let mut l = link(&f, &p, to);
                 let fr = encode(&sign_msg(&p.id, ty, 1, encode(&0u8)));
-                let r = l.check(&t, &fr);
+                let r = l.check(&t, NOW, &fr);
                 if may_send(ty, from, to) {
                     assert!(matches!(r, Err(AuthError::Body(_))), "{from:?}→{to:?} {ty:?}: {r:?}");
                 } else {
@@ -264,7 +264,7 @@ fn anti_rollback_and_revocation() {
     assert!(matches!(t.apply_revocation(&rl1), Err(AuthError::Rollback { .. })));
     // frames from the revoked party are refused; its cert no longer verifies
     let fr = encode(&sign_msg(&prod.id, MsgType::FreezeNotice, 1, encode(&freeze_body())));
-    assert_eq!(l.check(&t, &fr), Err(AuthError::Revoked));
+    assert_eq!(l.check(&t, NOW, &fr), Err(AuthError::Revoked));
     assert_eq!(t.verify_cert(&prod.cert, NOW).unwrap_err(), AuthError::Revoked);
 }
 
@@ -285,4 +285,31 @@ fn roster_rotation_without_release() {
     let evil = Custodians::generate(4);
     let upd3 = Roster { role: QuorumRole::Ceremony, version: 3, members: evil.members(), threshold: 1 };
     assert!(t.apply_roster_update(&evil.sign(4, MsgType::RosterUpdate, &upd3)).is_err());
+}
+
+#[test]
+fn revoked_custodians_do_not_count_towards_a_quorum() {
+    let f = fx();
+    let mut t = Trust::new(&f.pinned);
+    // revoke custodian #0 (signed by #1..#3)
+    let c0 = B32(key_hash(&f.ceremony.0[0].public()));
+    let rl = RevocationList { version: 1, revoked: vec![c0] };
+    let q: chp_wire::QuorumSignedMsg = chp_wire::decode_canonical(&f.ceremony.sign(5, MsgType::RevocationList, &rl)).unwrap();
+    t.apply_revocation(&encode(&q)).unwrap();
+    // #0 + #1 + #2 sign: only two count now → refused
+    let rl2 = RevocationList { version: 2, revoked: vec![] };
+    let three = f.ceremony.sign(3, MsgType::RevocationList, &rl2);
+    assert!(t.verify_quorum::<RevocationList>(&three, MsgType::RevocationList).is_err());
+    assert!(t.verify_quorum::<RevocationList>(&f.ceremony.sign(4, MsgType::RevocationList, &rl2), MsgType::RevocationList).is_ok());
+}
+
+#[test]
+fn an_expired_peer_certificate_stops_an_installed_link() {
+    let f = fx();
+    let t = Trust::new(&f.pinned);
+    let prod = party(&f, Role::Prod, "good", NOW + 10);
+    let mut l = link(&f, &prod, Role::Cold);
+    let fr = encode(&sign_msg(&prod.id, MsgType::FreezeNotice, 1, encode(&freeze_body())));
+    assert!(matches!(l.check(&t, NOW + 11, &fr), Err(AuthError::Cert(_))));
+    assert!(l.check(&t, NOW, &fr).is_ok());
 }

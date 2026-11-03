@@ -46,3 +46,17 @@ proposed design changes. Status: prototype as of 2026-11-03.
 |---|---|---|---|
 | B11 | **`job_seq` collides across a PROD replacement.** SP6 step 4.2 looks up `job_seq` alone. A new PROD restarts at 1, so COLD refused its first job as "job_seq reused with different content" | COLD keys its job table by `(PROD signer, job_seq)` | SP6: idempotency key is `(PROD identity, job_seq)`, or the quorum assigns each PROD a `job_seq` floor |
 | B12 | Revocation at PROD discarded pools for any non-client key (B6 again, at PROD) | PROD discards only if the revoked key is its COLD peer, itself, or a HOT that signed an imported bundle | same as B6: put `role` in revocation entries |
+
+## E. From the security review ([`SECURITY.md`](SECURITY.md))
+
+Design-level changes the prototype adopted:
+
+| # | DESIGN says | Proposal (implemented in the prototype) |
+|---|---|---|
+| E1 | §6.1 protects presignature pools against storage restore | Protect **all** of COLD's control state (freeze, revocation, rosters, policy, ledger, replay cache). Use a `state` hardware counter advanced on every control change and at boot, and fail closed on a detected restore |
+| E2 | `Unfreeze{key_id, key_version, version}` | Add `evidence_hash` of the freeze being lifted, so a withheld Unfreeze cannot lift a later freeze |
+| E3 | SP10 verification checks the proof | Also check that the proof answers the query asked (chain, address/path, `request_id`) |
+| E4 | Policy content is the deployer's | State that fees move funds (`gas_limit · max_fee` capped and counted in limits) and that limits use a rolling window |
+| E5 | SP4 PresignOpen checks | HOT also checks that the key/version equal the agreed wake window's |
+| E6 | Revocation by `SHA-256(id_pk)` | Include the role (B6/B12 again): parties cannot tell an unlinked HOT/COLD/PROD key from others |
+| E7 | Certificates short-lived | Re-check validity at every use, not only at handshake/enrollment |

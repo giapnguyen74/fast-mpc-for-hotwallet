@@ -190,7 +190,7 @@ impl Hot {
         let Some(link) = self.link.as_mut() else {
             return self.refused("frame", "no link");
         };
-        let (t, body) = match link.check(&self.trust, bytes) {
+        let (t, body) = match link.check(&self.trust, now, bytes) {
             Ok(x) => x,
             Err(e) => return self.refused("frame", e.to_string()),
         };
@@ -205,7 +205,7 @@ impl Hot {
             MsgType::PresignMsg => self.on_presign_msg(decode_canonical(&body).unwrap()),
             MsgType::FreezeNotice => {
                 let f: FreezeNotice = decode_canonical(&body).unwrap();
-                if self.keyring.freeze(&f.key_id, f.key_version, f.fault) {
+                if self.keyring.freeze(&f.key_id, f.key_version, f.fault, f.evidence_hash) {
                     self.events.push(Event::Frozen { key_id: f.key_id, fault: f.fault });
                 }
                 Ok(())
@@ -325,6 +325,10 @@ impl Hot {
                 if c.role != Role::Prod {
                     return refuse("HOT only stores PROD's certificate");
                 }
+                // Never roll back to an older PROD certificate (security review).
+                if self.prod_cert.as_ref().is_some_and(|(old, _)| c.not_before < old.not_before) {
+                    return refuse("older PROD certificate than the one in force");
+                }
                 self.prod_cert = Some((c, inner.to_vec()));
                 Ok(())
             }
@@ -358,6 +362,10 @@ impl Hot {
         let Wake::Open { w, batches } = &self.wake else { return Some(RefuseReason::WindowClosed) };
         if w.return_stage == ReturnStage::ControlOnly || *batches >= w.max_batches || now > w.not_after {
             return Some(RefuseReason::WindowClosed);
+        }
+        // Presign only for the key and version the two operators agreed on (security review).
+        if o.key_id != w.key_id || o.key_version != w.key_version {
+            return Some(RefuseReason::VersionMismatch);
         }
         let Some(k) = self.keyring.get(&o.key_id, o.key_version) else { return Some(RefuseReason::KeyNotActive) };
         if k.state != chp_wire::KeyState::Active {
@@ -405,17 +413,18 @@ impl Hot {
         }
         let ids: Vec<B32> = self.runs.keys().copied().collect();
         for b in ids {
+            let done = self.runs[&b].1.is_finished(); // before the drain: no message is lost
             let msgs = self.runs.get_mut(&b).unwrap().1.drain_outgoing();
             for (id, payload) in msgs {
                 self.send(MsgType::PresignMsg, &PresignMsg { batch_id: b, presig_id: id, payload: Bytes(payload) });
             }
-            if self.runs[&b].1.is_finished() {
+            if done {
                 let (o, run) = self.runs.remove(&b).unwrap();
                 match run.finish().await {
-                    Ok(halves) => self.export(o, halves),
+                    Ok(halves) => self.export(o, halves, now),
                     Err(e) => {
                         // DESIGN SP4 §6: consistency failure → batch aborted, key frozen, no retry.
-                        self.keyring.freeze(&o.key_id, o.key_version, Fault::Presign);
+                        self.keyring.freeze(&o.key_id, o.key_version, Fault::Presign, o.batch_id);
                         self.events.push(Event::Frozen { key_id: o.key_id, fault: Fault::Presign });
                         self.events.push(Event::Info(format!("presign fault: {e}")));
                         self.send(MsgType::FreezeNotice, &FreezeNotice { key_id: o.key_id, key_version: o.key_version, fault: Fault::Presign, evidence_hash: o.batch_id });
@@ -429,11 +438,16 @@ impl Hot {
     }
 
     /// SP5 steps 2–4: seal halves to PROD, sign the transfer, erase, report `PresignStored`.
-    fn export(&mut self, o: PresignOpen, halves: Vec<(u64, EcdsaHalf)>) {
+    fn export(&mut self, o: PresignOpen, halves: Vec<(u64, EcdsaHalf)>, now: u64) {
         let parts: Vec<(u64, Vec<u8>)> = halves.iter().map(|(id, h)| (*id, h.public_part())).collect();
         let digest = batch_digest(&o.batch_id, &o.key_id, o.key_version, &o.path, &parts);
         let Some((prod, _)) = self.prod_cert.clone() else { return };
-        let plaintext = encode(&halves);
+        if now > prod.not_after || self.trust.is_revoked(&B32(chp_crypto::ident::key_hash(&prod.id_pk.0))) {
+            self.events.push(Event::Refused { what: "export".into(), why: "PROD certificate expired or revoked".into() });
+            return;
+        }
+        // Plaintext halves are zeroized when this buffer is dropped.
+        let plaintext = zeroize::Zeroizing::new(encode(&halves));
         let mut tr = PresigTransfer {
             batch_id: o.batch_id,
             key_id: o.key_id,
@@ -484,8 +498,16 @@ impl Hot {
         if p.manifest_hash != entry.manifest_hash || p.party_index != my_index || p.key_id != entry.manifest.key_id || p.key_version != entry.manifest.key_version {
             return refuse("package does not match manifest / party");
         }
-        if p.ceremony_id != cm.open.ceremony_id {
-            return refuse("package from another ceremony");
+        if p.ceremony_id != cm.open.ceremony_id
+            || !matches!(cm.open.kind, CeremonyKind::Dkg | CeremonyKind::Refresh)
+            || p.key_id != cm.open.key_id
+        {
+            return refuse("package from another ceremony, kind or key");
+        }
+        // The manifest must name *this* enclave's certificate for HOT (security review).
+        let mine = entry.manifest.parties.iter().find(|x| x.role == Role::Hot).map(|x| x.cert_hash);
+        if mine != Some(chp_core::digest::hash_of(&self.cert)) {
+            return refuse("manifest names another HOT certificate");
         }
         if self.shares.contains_key(&(p.key_id, p.key_version)) {
             return refuse("already imported (forward-only)");
@@ -520,12 +542,13 @@ impl Hot {
     }
 }
 
-/// HPKE `info` of a share package (DESIGN SP3 §4 step 1).
+/// HPKE `info` of a share package (DESIGN SP3 §4 step 1), binding the manifest hash.
 pub fn share_info(p: &SharePackage) -> Vec<u8> {
-    let mut v = b"chp-share-v1".to_vec();
+    let mut v = b"chp-share-v2".to_vec();
     v.extend_from_slice(&p.key_id.0);
     v.extend_from_slice(&p.key_version.to_be_bytes());
     v.push(p.party_index);
     v.extend_from_slice(&p.ceremony_id.0);
+    v.extend_from_slice(&p.manifest_hash.0);
     v
 }

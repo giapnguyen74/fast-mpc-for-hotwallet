@@ -374,6 +374,7 @@ dependencies = [
  "rand 0.8.8",
  "serde",
  "thiserror 1.0.69",
+ "zeroize",
 ]
 
 [[package]]
@@ -426,6 +427,7 @@ dependencies = [
  "sl-mpc-mate",
  "thiserror 1.0.69",
  "tokio",
+ "zeroize",
 ]
 
 [[package]]

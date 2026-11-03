@@ -277,11 +277,13 @@ async fn main() {
     let verifier = chp_auth::trust::Trust::new(&w.q.pinned());
     for _ in 0..100 {
         let nonce = B32(rand::random());
-        let q = AddressQuery { request_id: B32(rand::random()), chain: CHAIN.into(), address: None, path: Some(PATH.into()), nonce, not_after: w.now + 60 };
+        let request_id = B32(rand::random());
+        let q = AddressQuery { request_id, chain: CHAIN.into(), address: None, path: Some(PATH.into()), nonce, not_after: w.now + 60 };
+        let asked = chp_core::address::Asked { request_id, nonce, chain: CHAIN, address: None, path: Some(PATH) };
         let qf = chp_auth::sign_body(&w.requester, MsgType::AddressQuery, 0, &q);
         let (proof, d) = time(|| w.prod.address_query(&qf, w.now).unwrap());
         pq.push(d);
-        let (_, d) = time(|| chp_core::address::verify_proof(&verifier, &proof, &nonce, 0, w.now).unwrap());
+        let (_, d) = time(|| chp_core::address::verify_proof(&verifier, &proof, &asked, 0, w.now).unwrap());
         vq.push(d);
     }
     rows.push(row("D", "SP10 PROD answers AddressQuery (signed proof)", pq, ""));

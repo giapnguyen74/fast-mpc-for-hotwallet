@@ -16,6 +16,8 @@ tokio = { workspace = true }
 futures = { workspace = true }
 derivation-path = "0.2"
 thiserror = { workspace = true }
+zeroize = { workspace = true }
 
 [dev-dependencies]
+chp-crypto = { workspace = true, features = ["sim-hooks"] }
 hex = { workspace = true }
