@@ -352,6 +352,14 @@ medium and 14 low issues. All 26 are fixed, each with a regression test where pr
 items are accepted as open for the prototype. A compromised PROD could not get an unauthorised
 signature, reuse a presignature or extract COLD's secrets. See [`docs/SECURITY.md`](docs/SECURITY.md).
 
+> [!WARNING]
+> **Known open advisory: [RUSTSEC-2026-0387](https://rustsec.org/advisories/RUSTSEC-2026-0387.html)**,
+> timing variability in `crypto-bigint` 0.5.5 operations that are meant to be constant-time.
+> It comes in through `k256` 0.13 (`elliptic-curve` 0.13), which the vendored DKLs23 library is
+> built on. Fixing it means porting that library to the newer elliptic-curve version
+> (`k256` 0.14 / `crypto-bigint` ≥ 0.7.6). Until then, treat timing side channels on the signing
+> parties as unmitigated.
+
 ## Warnings
 
 Several constructions in the design are marked **REVIEW REQUIRED** (FROST δ masking, Taproot sign
