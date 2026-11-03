@@ -75,8 +75,8 @@ flowchart LR
     E["SP1<br/>Enrollment"] --> K["SP2<br/>Key ceremony (DKG)"] --> D["SP3<br/>Share delivery"]
     D --> W["SP4<br/>Wake window + presign"] --> M["SP5<br/>Media → PROD<br/>activation"] --> S["SP6<br/>Signing"]
     S -- "pool low" --> W
-    S -- "fault" --> F["SP7<br/>Freeze → quorum Unfreeze"]
-    F --> S
+    S -- "fault" --> F["SP7<br/>Freeze (all presignatures discarded)<br/>→ quorum Unfreeze"]
+    F -- "new batches only" --> W
     S -- "PROD exits" --> X["Revoke PROD<br/>pools discarded"] --> J["New PROD joins<br/>enroll + link"] --> W
     K --> A["SP10<br/>Address book + proofs"]
 ```
@@ -217,13 +217,14 @@ sequenceDiagram
     participant Q as Incident quorum
     P->>C: Job: valid UPSTREAM envelope for tx A,<br/>fragment computed for attacker's tx B
     Note over C: COLD decodes tx A itself → signature does not verify
-    C->>C: FAULT_FINAL_VERIFY → FREEZE · keep signed Job as evidence
-    C->>P: FreezeNotice → PROD freezes, refuses all requests
-    Note over P,C: nothing is broadcast · no automatic retry
-    Q-->>C: Unfreeze{version n} (M-of-N, verified by COLD itself)
-    Q-->>P: Unfreeze{version n}
+    C->>C: FAULT_FINAL_VERIFY → FREEZE · keep signed Job as evidence<br/>discard EVERY presignature of the key
+    C->>P: FreezeNotice{evidence} → PROD freezes, deletes all its halves
+    Note over P,C: nothing is broadcast · no automatic retry<br/>halves an attacker copied can never be completed
+    Q-->>C: Unfreeze{version n, evidence} (M-of-N, verified by COLD itself)
+    Q-->>P: Unfreeze{version n, evidence}
     C-->>H: QuorumFile(Unfreeze) at HOT's next window
-    Note over C,P: a replayed Unfreeze (version ≤ n) is refused
+    Note over C,P: a replayed Unfreeze, or one naming another freeze, is refused
+    Note over C,H: signing resumes only with NEW batches:<br/>fresh wake window → presign → media → activate
 ```
 
 ### 9. §6.1 · Restarts and storage restore: a presignature is never used twice
