@@ -15,18 +15,26 @@ use serde::{Deserialize, Serialize};
 #[derive(Default, Clone, Debug, Serialize, Deserialize)]
 pub struct ReplayCache {
     seen: BTreeMap<B32, u64>,
+    /// Expiry index, so pruning costs O(pruned · log n), not a scan per insert (deep review).
+    by_expiry: std::collections::BTreeSet<(u64, B32)>,
 }
 
 impl ReplayCache {
     /// Returns `false` if `id` was seen before. Records it until `expires`; prunes entries whose
     /// expiry is below `prune_clock` (see the module safety rule).
     pub fn check_and_insert(&mut self, id: B32, expires: u64, prune_clock: u64) -> bool {
-        self.seen.retain(|_, exp| *exp >= prune_clock);
-        let not_after = expires;
+        while let Some(&(exp, k)) = self.by_expiry.first() {
+            if exp >= prune_clock {
+                break;
+            }
+            self.by_expiry.remove(&(exp, k));
+            self.seen.remove(&k);
+        }
         if self.seen.contains_key(&id) {
             return false;
         }
-        self.seen.insert(id, not_after);
+        self.seen.insert(id, expires);
+        self.by_expiry.insert((expires, id));
         true
     }
     pub fn contains(&self, id: &B32) -> bool {

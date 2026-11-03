@@ -41,7 +41,7 @@ async fn a_withheld_unfreeze_cannot_lift_a_later_freeze() {
     w.cold.freeze(w.key_id, 1, Fault::ProdFragment, B32([2; 32]), None);
     w.pump().await;
     // replaying u1 (even re-signed with a higher version for the old incident) does not lift it
-    let stale = w.q.ceremony.sign(w.q.m, MsgType::Unfreeze, &UnfreezeBody { key_id: w.key_id, key_version: 1, version: 99, evidence: vec![B32([1; 32])] });
+    let stale = w.q.ceremony.sign(w.q.m, MsgType::Unfreeze, &UnfreezeBody { key_id: w.key_id, key_version: 1, version: 99, evidence: vec![B32([1; 32])], issued_at: w.now });
     assert!(w.cold.apply_quorum(&u1, w.now).is_err());
     assert!(w.cold.apply_quorum(&stale, w.now).is_err());
     assert_eq!(frozen(&w), Some(Fault::ProdFragment));

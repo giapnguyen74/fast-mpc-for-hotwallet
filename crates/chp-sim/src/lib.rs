@@ -649,7 +649,7 @@ impl World {
                 }
             }
         }
-        let u = self.q.ceremony.sign(self.q.m, MsgType::Unfreeze, &UnfreezeBody { key_id: self.key_id, key_version: 1, version: self.unfreeze_ver, evidence });
+        let u = self.q.ceremony.sign(self.q.m, MsgType::Unfreeze, &UnfreezeBody { key_id: self.key_id, key_version: 1, version: self.unfreeze_ver, evidence, issued_at: self.now });
         // Parties that are not frozen refuse an Unfreeze (no version consumed).
         let _ = self.cold.apply_quorum(&u, self.now);
         let _ = self.prod.apply_quorum(&u, self.now);

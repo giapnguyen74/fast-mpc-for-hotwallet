@@ -62,6 +62,8 @@ impl Default for ColdConfig {
 
 const CEREMONY_COUNTER: &str = "ceremony";
 const STATE_COUNTER: &str = "state";
+/// How many recent job_seqs per PROD COLD remembers for idempotent re-sends.
+const JOB_WINDOW: u64 = 4096;
 
 /// COLD's own decode, messages and the authenticated job time, or the outcome to return.
 type Reverified = Result<(chp_chain::Decoded, Vec<[u8; 32]>, u64), (Outcome, String)>;
@@ -105,6 +107,9 @@ pub struct Sealed {
     pub local_time_floor: u64,
     /// The `state` hardware counter value COLD last set (restore detection for control state).
     pub state_counter: u64,
+    /// Requests signed before this time are refused (set when recovering from a restore).
+    #[serde(default)]
+    pub min_request_time: u64,
     /// Quorum files waiting for HOT's next window (sealed: survive a reboot).
     pub hot_files: Vec<Vec<u8>>,
     /// Control messages for PROD waiting for the link: (type code, encoded body).
@@ -164,6 +169,7 @@ impl Cold {
                 upstream: BTreeMap::new(),
                 local_time_floor: 0,
                 state_counter: 0,
+                min_request_time: 0,
                 hot_files: Vec::new(),
                 prod_queue: Vec::new(),
                 pools: BTreeMap::new(),
@@ -583,10 +589,11 @@ impl Cold {
         }
         let batch_id = B32(rand::random());
         pool.issued.insert(block, (batch_id, n));
+        self.bump_state(); // issuing ids changes sealed state (restore detection, deep review)
         if let Wake::Open { batches, .. } = &mut self.wake {
             *batches += 1;
         }
-        let import_deadline = now + self.cfg.import_window;
+        let import_deadline = now.saturating_add(self.cfg.import_window);
         self.st.batches.insert(batch_id, Batch { pool: pid.clone(), ids: ids.clone(), st: BatchSt::Opened, own: None, hot: None, prod: None, import_deadline });
         let open = PresignOpen { batch_id, key_id, key_version: kv, protocol, presig_ids: ids, path: path.into(), import_deadline };
         self.send(Role::Hot, MsgType::PresignOpen, &open);
@@ -732,6 +739,9 @@ impl Cold {
     /// Activate iff own digest = HOT's export digest = PROD's import digest (DESIGN SP5 §3 step 6).
     fn try_activate(&mut self, batch_id: &B32) {
         let Some(b) = self.st.batches.get(batch_id) else { return };
+        if b.st == BatchSt::Active {
+            return;
+        }
         let (Some(own), Some(hot), Some(prod)) = (b.own, b.hot, b.prod) else {
             if let (Some(own), Some(hot)) = (b.own, b.hot) {
                 if own != hot {
@@ -751,6 +761,7 @@ impl Cold {
         for i in ids {
             pool.pending.remove(&i);
         }
+        self.bump_state(); // activation changes sealed state (restore detection, deep review)
         self.ev(Event::BatchState { batch_id: *batch_id, state: "Active".into() });
         self.send(Role::Prod, MsgType::PresignActivate, &BatchDigest { batch_id: *batch_id, digest: own });
     }
@@ -794,8 +805,15 @@ impl Cold {
             txid: signed.as_ref().map(|(_, t)| *t),
             signed_tx: signed.map(|(b, _)| Bytes(b)),
         };
-        let k = (self.prod_signer(), job_seq);
-        self.st.jobs.insert(k, (job_hash, encode(&s)));
+        let signer = self.prod_signer();
+        self.st.jobs.insert((signer, job_seq), (job_hash, encode(&s)));
+        // Bounded: keep the newest JOB_WINDOW job_seqs per PROD (a compromised PROD could
+        // otherwise grow COLD's sealed state without limit; deep review). An older job_seq is
+        // refused as unknown, never re-signed: its presignatures were burned when first seen.
+        let stale: Vec<(B32, u64)> = self.st.jobs.range((signer, 0)..(signer, job_seq.saturating_sub(JOB_WINDOW))).map(|(k, _)| *k).collect();
+        for k in stale {
+            self.st.jobs.remove(&k);
+        }
         self.send(Role::Prod, MsgType::Status, &s);
     }
 
@@ -803,6 +821,11 @@ impl Cold {
     fn on_job(&mut self, body: &[u8], now: u64) {
         let job: Job = decode_canonical(body).expect("validated");
         let job_hash = hash_of(body);
+        // A job_seq below the remembered window is refused (it can only be a replay).
+        let newest = self.st.jobs.range((self.prod_signer(), 0)..=(self.prod_signer(), u64::MAX)).next_back().map(|(k, _)| k.1).unwrap_or(0);
+        if job.job_seq.saturating_add(JOB_WINDOW) < newest {
+            return self.refused("Job", "job_seq older than the remembered window");
+        }
         // 4.2 job_seq first: a resent identical job gets the stored Status; never signed twice.
         if let Some((h, stored)) = self.st.jobs.get(&(self.prod_signer(), job.job_seq)).cloned() {
             if h == job_hash {
@@ -833,7 +856,8 @@ impl Cold {
             true => {
                 for it in &job.items {
                     let hw = self.enclave.counters.read(&name);
-                    let class = self.st.pools[&pid].classify(it.presig_id, hw, (self.cfg.hot_replica, self.cfg.replica));
+                    let alloc_hw = self.enclave.counters.read(&format!("alloc/{}", Pool::counter_name(&pid)));
+                    let class = self.st.pools[&pid].classify(it.presig_id, hw, (self.cfg.hot_replica, self.cfg.replica), alloc_hw);
                     match class {
                         IdClass::Take => {
                             // entering a new block advances the hardware counter (by one each)
@@ -880,7 +904,8 @@ impl Cold {
                 // 5 own policy
                 // Policy and ledger use the authenticated job time, never the host's raw clock
                 // (security review round 2: a backdated host clock emptied the 24 h window).
-                let verdict = self.st.policy.get(&env.key_id).map(|p| p.evaluate(&decoded, t_job)).unwrap_or(Verdict::Reject("no policy for this key".into()));
+                let skew = self.cfg.max_time_skew;
+                let verdict = self.st.policy.get(&env.key_id).map(|p| p.evaluate_with_margin(&decoded, t_job, skew)).unwrap_or(Verdict::Reject("no policy for this key".into()));
                 if let Verdict::Reject(why) = verdict {
                     return self.status(job.job_seq, job_hash, env.request_id, Outcome::Rejected, &format!("COLD policy: {why}"), None);
                 }
@@ -964,6 +989,9 @@ impl Cold {
         let skew = self.cfg.max_time_skew;
         if env.upstream_time > cold_now.saturating_add(skew) || job.prod_time > cold_now.saturating_add(skew) {
             return rej("signed time is in the future");
+        }
+        if self.st.min_request_time > 0 && env.upstream_time <= self.st.min_request_time {
+            return rej("request signed before the restore recovery");
         }
         let t_now = cold_now.max(job.prod_time);
         if env.not_after < env.upstream_time || env.not_after - env.upstream_time > self.cfg.max_request_window {
@@ -1137,6 +1165,16 @@ impl Cold {
                 // Backstop: whatever was left (e.g. a batch in flight) is discarded too, so the
                 // key resumes only with presignatures made after the Unfreeze.
                 self.retire_presignatures(c.key_id, c.key_version, "unfrozen: new signing batches required");
+                // Recovery from a detected storage restore: the restored replay cache and ledger
+                // can't be trusted. Refuse every request signed before the quorum's issue time,
+                // and count the daily limit as used up to it (deep review).
+                if let Some((Fault::Rollback, issued_at)) = self.st.keyring.last_lifted {
+                    self.st.min_request_time = self.st.min_request_time.max(issued_at);
+                    self.st.local_time_floor = self.st.local_time_floor.max(issued_at.min(now));
+                    for p in self.st.policy.values_mut() {
+                        p.precharge(issued_at);
+                    }
+                }
                 self.ev(Event::Unfrozen { key_id: c.key_id });
             }
             MsgType::RevocationList => {
@@ -1147,6 +1185,7 @@ impl Cold {
                 let hashes: Vec<B32> = newly.iter().map(|r| r.key_hash).collect();
                 for h in &hashes {
                     self.st.upstream.remove(h);
+                    self.st.jobs.retain(|(signer, _), _| signer != h); // a revoked PROD's jobs
                 }
                 if self.hot.as_ref().is_some_and(|l| hashes.contains(&l.peer_signer)) {
                     self.link_lost(Role::Hot);

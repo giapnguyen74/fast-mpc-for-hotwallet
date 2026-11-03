@@ -74,6 +74,8 @@ async fn storage_restore_is_detected_and_old_halves_never_sign_again() {
     // working above the floor after a refill.
     w.unfreeze();
     w.refill(PATH, 1).await;
+    // the restored ledger is not trusted: the daily limit counts as used for 24 h after recovery
+    w.advance(86_400 + 200);
     let j = w.withdraw(DEST, 1, PATH).await.unwrap();
     assert_eq!(w.status_of(j).unwrap().outcome, Outcome::Signed);
 }

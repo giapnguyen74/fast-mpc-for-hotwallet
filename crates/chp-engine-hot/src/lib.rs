@@ -285,7 +285,7 @@ impl Hot {
         if w.return_stage == ReturnStage::Dkg && self.keyring.known(&w.key_id) {
             return refuse("a Dkg window must name a new key");
         }
-        if w.max_batches > self.cfg.max_batches_cap || w.not_after <= now || w.not_after > now + self.cfg.max_window_secs {
+        if w.max_batches > self.cfg.max_batches_cap || w.not_after <= now || w.not_after > now.saturating_add(self.cfg.max_window_secs) {
             return refuse("window caps exceeded");
         }
         let want = self.wake_counter() + 1;
@@ -538,7 +538,15 @@ impl Hot {
             sealed: Sealed { enc: Bytes::default(), ct: Bytes::default() },
         };
         let aad = aad_of(b"chp-transfer-aad-v1", &tr);
-        let s = seal(&prod.wrap_pk.0, b"chp-transfer-v1", &aad, &plaintext, &mut rand::thread_rng()).expect("seal");
+        let s = match seal(&prod.wrap_pk.0, b"chp-transfer-v1", &aad, &plaintext, &mut rand::thread_rng()) {
+            Ok(s) => s,
+            Err(e) => {
+                // e.g. an unusable PROD wrap key: refuse the batch instead of crashing (deep review)
+                self.events.push(Event::Refused { what: "export".into(), why: format!("cannot seal to PROD: {e}") });
+                self.send(MsgType::PresignRefuse, &PresignRefuse { batch_id: o.batch_id, reason: RefuseReason::BadBatch });
+                return;
+            }
+        };
         tr.sealed = Sealed { enc: Bytes(s.enc), ct: Bytes(s.ct) };
         let transfer = sign_body(&self.enclave.id, MsgType::PresigTransfer, 0, &tr);
         let bundle = MediaBundle { hot_cert: Bytes(self.cert.clone()), transfer: Bytes(transfer) };

@@ -52,11 +52,19 @@ impl Pool {
     }
 
     /// Classify one id against the pool state and the hardware counter value `hw`.
-    pub fn classify(&self, id: PresigId, hw: u64, replicas: (u8, u8)) -> IdClass {
+    pub fn classify(&self, id: PresigId, hw: u64, replicas: (u8, u8), alloc_hw: u64) -> IdClass {
         let b = presig_id::block(id);
         // The replica bits are part of the id: an id with foreign replica bits was never issued
         // (security review: it would otherwise pass `issued_id` and push the mark to ~2^64).
-        if presig_id::replicas(id) != replicas || !self.issued_id(id) {
+        if presig_id::replicas(id) != replicas {
+            return IdClass::Fault("presig id never issued");
+        }
+        if !self.issued_id(id) {
+            // A block the hardware allocation counter has handed out but the (restored) state
+            // does not know: lost to a storage restore, not PROD misbehaving (deep review).
+            if (b as u64) <= alloc_hw {
+                return IdClass::Reject("id from a block lost to a storage restore");
+            }
             return IdClass::Fault("presig id never issued");
         }
         if self.floor_block.is_some_and(|f| b <= f) {

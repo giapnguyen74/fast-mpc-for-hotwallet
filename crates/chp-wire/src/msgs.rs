@@ -173,6 +173,10 @@ pub struct UnfreezeBody {
     pub version: u64,
     /// The freezes this Unfreeze lifts (parties may hold different evidence for one incident).
     pub evidence: Vec<B32>,
+    /// When the quorum issued it. Lifting a `Rollback` freeze, COLD refuses every request signed
+    /// before this time and counts the daily limit as used up to it (the restored replay cache
+    /// and ledger can't be trusted; deep review).
+    pub issued_at: u64,
 }
 
 // ---------------------------------------------------------------- SP4 wake + presign -------

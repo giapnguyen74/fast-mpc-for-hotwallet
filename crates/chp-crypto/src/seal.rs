@@ -92,6 +92,8 @@ mod tests {
         assert!(other.open(&s, b"info", b"aad").is_err());
         assert!(k.open(&s, b"other", b"aad").is_err());
         assert!(k.open(&s, b"info", b"x").is_err());
+        // a small-order recipient key is refused (no panic upstream)
+        assert!(seal(&[0u8; 32], b"i", b"a", b"x", &mut rng).is_err());
         let mut t = s.clone();
         t.ct[0] ^= 1;
         assert!(k.open(&t, b"info", b"aad").is_err());

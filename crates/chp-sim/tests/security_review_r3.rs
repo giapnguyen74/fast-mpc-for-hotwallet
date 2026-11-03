@@ -112,3 +112,25 @@ async fn a_new_key_version_cannot_swap_the_group_key() {
     assert!(cold.cold.apply_quorum(&cold.q.sign(MsgType::KeyManifest, &ok), cold.now).is_ok());
     let _ = &mut cold;
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn junk_jobs_cannot_grow_colds_sealed_state() {
+    let mut w = World::setup(Options::default()).await;
+    let base = w.prod.next_job_seq();
+    for i in 0..5_000u64 {
+        let job = Job {
+            job_seq: base + i,
+            envelope: chp_wire::Bytes::default(),
+            key_version: 1,
+            items: vec![],
+            prod_time: w.now,
+            sealed: Sealed { enc: chp_wire::Bytes::default(), ct: chp_wire::Bytes::default() },
+        };
+        w.prod.adversary_send_job_raw(job);
+        if i % 500 == 0 {
+            w.pump().await;
+        }
+    }
+    w.pump().await;
+    assert!(w.cold.st.jobs.len() <= 4097, "job table bounded, got {}", w.cold.st.jobs.len());
+}

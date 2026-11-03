@@ -65,6 +65,9 @@ pub fn decode_point(b: &[u8]) -> Option<ProjectivePoint> {
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Keyring {
     keys: BTreeMap<(KeyId, u32), KeyEntry>,
+    /// The fault and issue time of the freeze the last applied Unfreeze lifted.
+    #[serde(default)]
+    pub last_lifted: Option<(Fault, u64)>,
 }
 
 impl Keyring {
@@ -161,6 +164,7 @@ impl Keyring {
         }
         trust.bump_version(&format!("Unfreeze/{}", hex::encode(u.key_id.0)), u.version)?;
         let e = self.keys.get_mut(&(u.key_id, u.key_version)).unwrap();
+        self.last_lifted = e.frozen.map(|f| (f, u.issued_at));
         e.frozen = None;
         e.freeze_evidence = None;
         Ok(KeyControl { key_id: u.key_id, key_version: u.key_version, version: u.version })

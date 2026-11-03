@@ -41,6 +41,12 @@ impl PolicyState {
 
     /// Evaluate a decoded withdrawal. No state change.
     pub fn evaluate(&self, d: &Decoded, now: u64) -> Verdict {
+        self.evaluate_with_margin(d, now, 0)
+    }
+
+    /// Evaluate over a window of 24 h + `margin` (COLD passes its time skew: a peer that can
+    /// push the evaluation time forward by up to `margin` must not shorten the window).
+    pub fn evaluate_with_margin(&self, d: &Decoded, now: u64, margin: u64) -> Verdict {
         let r = &self.rules;
         if self.version == 0 {
             return Verdict::Reject("no policy installed".into());
@@ -61,14 +67,22 @@ impl PolicyState {
         if cost > parse(&r.max_per_tx) {
             return Verdict::Reject("over per-transaction limit (value + max fee)".into());
         }
-        if self.spent_24h(now).saturating_add(cost) > parse(&r.max_per_day) {
+        if self.spent_since(now.saturating_sub(DAY - 1 + margin)).saturating_add(cost) > parse(&r.max_per_day) {
             return Verdict::Reject("over rolling 24 h limit".into());
         }
         Verdict::Approve
     }
 
-    fn spent_24h(&self, now: u64) -> u128 {
-        self.ledger.range(now.saturating_sub(DAY - 1)..).map(|(_, v)| *v).fold(0u128, |a, v| a.saturating_add(v))
+    fn spent_since(&self, from: u64) -> u128 {
+        self.ledger.range(from..).map(|(_, v)| *v).fold(0u128, |a, v| a.saturating_add(v))
+    }
+
+    /// Count the whole daily limit as spent at `when` (recovery from a detected storage
+    /// restore: the restored ledger can't be trusted).
+    pub fn precharge(&mut self, when: u64) {
+        let full = parse(&self.rules.max_per_day);
+        let e = self.ledger.entry(when).or_insert(0);
+        *e = (*e).max(full);
     }
 
     /// Give back a reservation made with [`PolicyState::record`] at `when` (not signed).
@@ -82,7 +96,7 @@ impl PolicyState {
     pub fn record(&mut self, d: &Decoded, now: u64) {
         let e = self.ledger.entry(now).or_insert(0);
         *e = e.saturating_add(d.value.saturating_add(d.max_fee));
-        self.ledger = self.ledger.split_off(&now.saturating_sub(DAY));
+        self.ledger = self.ledger.split_off(&now.saturating_sub(2 * DAY));
     }
 }
 

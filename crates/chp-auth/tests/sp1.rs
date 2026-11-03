@@ -330,3 +330,28 @@ fn frames_from_an_earlier_session_cannot_be_replayed() {
     assert_ne!(l1.link_id, l2.link_id);
     assert_eq!(l2.check(&t, NOW, &fr), Err(AuthError::BadSignature));
 }
+
+#[test]
+fn padded_or_duplicate_quorum_signatures_are_refused_cheaply() {
+    let f = fx();
+    let t = Trust::new(&f.pinned);
+    let rl = RevocationList { version: 1, revoked: vec![] };
+    let mut q: chp_wire::QuorumSignedMsg = chp_wire::decode_canonical(&f.ceremony.sign(5, MsgType::RevocationList, &rl)).unwrap();
+    for _ in 0..1000 {
+        q.sigs.push(q.sigs[0].clone());
+    }
+    assert!(matches!(t.verify_quorum::<RevocationList>(&encode(&q), MsgType::RevocationList), Err(AuthError::Quorum(_))));
+}
+
+#[test]
+fn certificates_with_an_unusable_wrap_key_are_refused() {
+    let f = fx();
+    let t = Trust::new(&f.pinned);
+    let id = IdKey::generate(&mut rand::thread_rng());
+    let c = PartyCert {
+        role: Role::Prod, party_index: 0, replica: 0, id_pk: B32(id.public()), wrap_pk: B32([0; 32]),
+        measurement: chp_tee::measurement_of("good"), key_ids: vec![], not_before: 0, not_after: NOW + 10, qr_route: false,
+    };
+    let cert = f.ceremony.sign(3, MsgType::PartyCert, &c);
+    assert!(matches!(t.verify_cert(&cert, NOW), Err(AuthError::Cert(_))));
+}

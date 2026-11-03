@@ -102,6 +102,16 @@ impl EcdsaHalf {
         }
     }
 
+    /// Well-formed: valid points, canonical scalars.
+    pub fn validate(&self) -> Result<(), CryptoError> {
+        self.big_r_point()?;
+        self.y_point()?;
+        dec_scalar(&self.phi)?;
+        dec_scalar(&self.s0)?;
+        dec_scalar(&self.s1)?;
+        Ok(())
+    }
+
     pub fn big_r_point(&self) -> Result<ProjectivePoint, CryptoError> {
         dec_point(&self.big_r)
     }

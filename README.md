@@ -328,7 +328,7 @@ Rust workspace (see [`docs/PLAN.md`](docs/PLAN.md)):
 ./scripts/web-demo.sh                 # animated web demo of a real run → http://127.0.0.1:14080
 cargo run -p chp-sim --example demo   # narrated run of every flow above, every message printed
 cargo run --release -p chp-sim --example bench   # timings (see docs/BENCHMARKS.md)
-cargo test --workspace                # 128 tests: crypto validation, SP1, engines, end-to-end, adversarial, security regressions
+cargo test --workspace                # 136 tests: crypto validation, SP1, engines, end-to-end, adversarial, security regressions
 ./scripts/check-capabilities.sh       # PROD has no MPC code path; no simulation hooks in production builds
 ```
 
@@ -348,12 +348,16 @@ License. Commercial use of it is the user's own responsibility. See
 
 ## Security
 
-Two rounds of internal security review (five independent reviewers plus `cargo audit`). Round 1
-found 26 issues (2 high, 10 medium, 14 low); round 2 re-audited those fixes and covered new
-attacker scenarios (compromised HOT or UPSTREAM, malicious COLD host, network, colluding pairs)
-and found 23 more (2 high, 8 medium, the rest low). All are fixed with regression tests, the most
-important mutation-checked. No scenario produced a signature without a valid UPSTREAM request,
-reused a presignature or extracted COLD's share. See [`docs/SECURITY.md`](docs/SECURITY.md).
+Three rounds of internal security review: code review (rounds 1–2), then a deep review that
+audited the vendored DKLs23 internals with a malicious-peer harness, ran ~2,150 randomised attack
+sequences against the engines, fuzzed every untrusted-input parser, and analysed the design's
+threat model. The deep review found and the prototype fixed a **critical key-extraction attack**
+(a selective-failure probe on DKLs23's OT layer, amplified by CHP's batching and abort paths). In
+total about 60 code issues are fixed with regression tests, the important ones mutation-checked.
+No test ever produced a signature without a valid UPSTREAM request, reused a presignature or
+nonce, or extracted COLD's share. Design-level findings that need decisions (the ceremony quorum
+and UPSTREAM carry more trust than DESIGN.md states) are in
+[`docs/design-notes.md`](docs/design-notes.md) §F. See [`docs/SECURITY.md`](docs/SECURITY.md).
 
 > [!WARNING]
 > **Known open advisory: [RUSTSEC-2026-0387](https://rustsec.org/advisories/RUSTSEC-2026-0387.html)**,

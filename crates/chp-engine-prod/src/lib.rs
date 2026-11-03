@@ -219,6 +219,8 @@ impl Prod {
         self.cold_wrap_pk = Some(link.peer.wrap_pk);
         self.cold = Some(link);
         self.flush_queue();
+        // reconcile pools on every (re)connect, so halves COLD aborted while unlinked go away
+        self.send_pool_status();
         let reply = make_hello(HelloParams {
             id: &self.enclave.id,
             cert: &self.cert,
@@ -342,6 +344,11 @@ impl Prod {
         let sealed = chp_crypto::seal::Sealed { enc: tr.sealed.enc.0.clone(), ct: tr.sealed.ct.0.clone() };
         let pt = self.enclave.wrap.open(&sealed, b"chp-transfer-v1", &aad).map_err(|_| "HPKE open failed")?;
         let halves: Vec<(PresigId, EcdsaHalf)> = ciborium::from_reader(pt.as_slice()).map_err(|_| "bad half list")?;
+        // every half must be well formed (canonical scalars, valid points), else the batch is
+        // refused at import instead of failing later (deep review)
+        if halves.iter().any(|(_, h)| h.validate().is_err()) {
+            return Err("malformed presignature half".into());
+        }
         let ids: Vec<PresigId> = halves.iter().map(|(i, _)| *i).collect();
         if ids != tr.presig_ids {
             return Err("half ids do not match the transfer".into());
@@ -433,7 +440,8 @@ impl Prod {
             MsgType::OrphanDelete => {
                 let o: OrphanDelete = decode_canonical(&body).unwrap();
                 if let Some(pool) = self.pools.get_mut(&o.pool) {
-                    pool.retain(|id, _| !o.presig_ids.contains(id) && o.up_to_block.is_none_or(|b| presig_id::block(*id) >= b));
+                    let named: std::collections::BTreeSet<PresigId> = o.presig_ids.iter().copied().collect();
+                    pool.retain(|id, _| !named.contains(id) && o.up_to_block.is_none_or(|b| presig_id::block(*id) >= b));
                 }
             }
             other => self.refused(&format!("{other:?}"), "not handled by PROD"),
@@ -477,7 +485,7 @@ impl Prod {
         if !cert.key_ids.is_empty() && !cert.key_ids.contains(&env.key_id) {
             return Err(adm("UPSTREAM certificate does not cover this key"));
         }
-        if now > env.not_after || env.not_after.saturating_sub(env.upstream_time) > 300 || env.not_after > now + 300 || env.upstream_time > now + 120 {
+        if now > env.not_after || env.not_after.saturating_sub(env.upstream_time) > 300 || env.not_after > now.saturating_add(300) || env.upstream_time > now.saturating_add(120) {
             return Err(adm("expired or validity window over 300 s"));
         }
         if self.replay.contains(&env.request_id) {
@@ -508,30 +516,41 @@ impl Prod {
             return Err(adm("not enough active presignatures"));
         }
         let wrap = self.cold_wrap_pk.ok_or(adm("no COLD link"))?;
-        // ---- admission passed: from here state changes ----
-        self.replay.check_and_insert(env.request_id, env.not_after, now);
-        // Reserve the amount now; released if COLD does not sign (security review round 2: a
-        // burst of requests admitted before any Status came back bypassed the daily limit).
-        if let Some(p) = self.policy.get_mut(&env.key_id) {
-            p.record(&decoded, now);
+        if k.manifest.protocol != chp_wire::Protocol::Dkls23Secp256k1 {
+            return Err(adm("protocol not supported by this engine"));
         }
         let y = k.group_key();
         let t = t_path(&env.key_id.0, &y, &env.path);
+        // ---- admission passed. Take the halves (deleted before computing), compute every
+        // fragment and seal; only then commit the replay entry and the policy reservation, so a
+        // failure here never leaves state behind (deep review).
         let mut items = Vec::new();
         let mut frags: Vec<EcdsaFragment> = Vec::new();
         for (i, m) in decoded.messages.iter().enumerate() {
-            // take the next half in strictly increasing id order: deleted before computing
             let id = active[i];
-            let (half, _) = self.pools.get_mut(&pid).unwrap().remove(&id).unwrap();
+            let (half, batch) = self.pools.get_mut(&pid).unwrap().remove(&id).unwrap();
             items.push(JobItem { input: i as u32, presig_id: id, ssid: ssid(&env.chain, &env.key_id, kv, id, m, &env.path) });
-            frags.push(prod_fragment(half, m, &t).map_err(|e| Refusal::Other(e.to_string()))?);
+            match prod_fragment(half, m, &t) {
+                Ok(f) => frags.push(f),
+                Err(e) => {
+                    // a malformed half can only come from HOT: drop its whole batch
+                    self.abort_local(&batch);
+                    self.events.push(Event::Info(format!("bad half in batch {batch:?} (from HOT?): {e}; batch dropped")));
+                    return Err(Refusal::Other(format!("bad presignature half: {e}")));
+                }
+            }
         }
-        let job_seq = self.next_job_seq;
-        self.next_job_seq += 1;
-        let mut job = Job { job_seq, envelope: Bytes(envelope_frame.to_vec()), key_version: kv, items, prod_time: now, sealed: Sealed { enc: Bytes::default(), ct: Bytes::default() } };
+        let mut job = Job { job_seq: self.next_job_seq, envelope: Bytes(envelope_frame.to_vec()), key_version: kv, items, prod_time: now, sealed: Sealed { enc: Bytes::default(), ct: Bytes::default() } };
         let aad = aad_of(b"chp-job-aad-v1", &job);
         let s = seal(&wrap.0, b"chp-job-v1", &aad, &encode(&frags), &mut rand::thread_rng()).map_err(|e| Refusal::Other(e.to_string()))?;
         job.sealed = Sealed { enc: Bytes(s.enc), ct: Bytes(s.ct) };
+        let job_seq = job.job_seq;
+        self.next_job_seq += 1;
+        self.replay.check_and_insert(env.request_id, env.not_after, now);
+        // Reserve the amount now; released if COLD does not sign (security review round 2).
+        if let Some(p) = self.policy.get_mut(&env.key_id) {
+            p.record(&decoded, now);
+        }
         self.outbox.insert(job_seq, job.clone());
         self.pending_env.insert(job_seq, (env, decoded, now));
         self.send(MsgType::Job, &job);
@@ -568,7 +587,7 @@ impl Prod {
         }
         let (_, body) = check_standalone(&cert, Role::Prod, frame, MsgType::AddressQuery).map_err(|e| Refusal::Other(e.to_string()))?;
         let q: AddressQuery = decode_canonical(&body).map_err(|e| Refusal::Other(e.to_string()))?;
-        if now > q.not_after || q.not_after > now + 300 || !self.query_replay.check_and_insert(q.nonce, q.not_after, now) {
+        if now > q.not_after || q.not_after > now.saturating_add(300) || !self.query_replay.check_and_insert(q.nonce, q.not_after, now) {
             return Err(Refusal::Other("expired or replayed query".into()));
         }
         let found = self.book.find(&q.chain, q.address.as_deref(), q.path.as_deref()).map(|(e, b, k, v)| (e.clone(), b.to_vec(), k, v));

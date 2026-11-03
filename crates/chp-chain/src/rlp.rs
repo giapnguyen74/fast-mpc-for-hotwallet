@@ -42,7 +42,8 @@ fn decode_one(b: &[u8], depth: usize) -> Result<(Item, usize), ChainError> {
             if l < 56 {
                 return Err(M);
             }
-            Ok((Item::Bytes(b.get(1 + ll..1 + ll + l).ok_or(M)?.to_vec()), 1 + ll + l))
+            let end = (1 + ll).checked_add(l).ok_or(M)?;
+            Ok((Item::Bytes(b.get(1 + ll..end).ok_or(M)?.to_vec()), end))
         }
         0xc0..=0xf7 => {
             let l = (p - 0xc0) as usize;
@@ -54,7 +55,8 @@ fn decode_one(b: &[u8], depth: usize) -> Result<(Item, usize), ChainError> {
             if l < 56 {
                 return Err(M);
             }
-            Ok((Item::List(decode_list(b.get(1 + ll..1 + ll + l).ok_or(M)?, depth + 1)?), 1 + ll + l))
+            let end = (1 + ll).checked_add(l).ok_or(M)?;
+            Ok((Item::List(decode_list(b.get(1 + ll..end).ok_or(M)?, depth + 1)?), end))
         }
     }
 }

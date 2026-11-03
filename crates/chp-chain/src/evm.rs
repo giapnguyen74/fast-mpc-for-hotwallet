@@ -164,5 +164,10 @@ mod tests {
             bytes = h;
         }
         assert!(rlp::decode(&bytes).is_err());
+        // a declared length near u64::MAX is refused, not an overflow panic (deep review)
+        for raw in [&hex::decode("02bfffffffffffffffff").unwrap()[..], &hex::decode("02ffffffffffffffffff").unwrap()[..]] {
+            assert!(Eip1559::decode_unsigned(raw).is_err());
+            assert!(rlp::decode(&raw[1..]).is_err());
+        }
     }
 }

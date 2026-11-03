@@ -80,9 +80,21 @@ impl Trust {
 
     fn check_sigs(&self, q: &QuorumSignedMsg, role: QuorumRole) -> Result<()> {
         let roster = self.roster(role).ok_or_else(|| AuthError::Quorum(format!("no roster for {role:?}")))?;
+        // Bound the work before verifying anything: at most one signature per roster member,
+        // no duplicates, and stop at the threshold (deep review: padding cost CPU).
+        if q.sigs.len() > roster.members.len() {
+            return Err(AuthError::Quorum("more signatures than roster members".into()));
+        }
+        let distinct: BTreeSet<B32> = q.sigs.iter().map(|s| s.member).collect();
+        if distinct.len() != q.sigs.len() {
+            return Err(AuthError::Quorum("duplicate signer".into()));
+        }
         let d = quorum_digest(q.msg_type, &q.body.0);
         let mut seen = BTreeSet::new();
         for s in &q.sigs {
+            if seen.len() >= roster.threshold as usize && roster.threshold > 0 {
+                break;
+            }
             // Non-members and duplicate signers are ignored (SP1 §7).
             // Revoked members do not count (security review: a RevocationList may name a
             // custodian before the next RosterUpdate).
@@ -147,8 +159,9 @@ impl Trust {
             return Ok(false); // already have it (or older): ignored
         }
         self.check_sigs(&q, r.role)?;
-        if r.threshold == 0 || (r.threshold as usize) > r.members.len() {
-            return Err(AuthError::Quorum("bad threshold".into()));
+        let distinct: BTreeSet<B32> = r.members.iter().copied().collect();
+        if r.threshold == 0 || (r.threshold as usize) > r.members.len() || distinct.len() != r.members.len() {
+            return Err(AuthError::Quorum("bad threshold or duplicate members".into()));
         }
         self.rosters.insert(r.role, r);
         Ok(true)
@@ -184,6 +197,13 @@ impl Trust {
         }
         if self.is_revoked(&B32(ident::key_hash(&c.id_pk.0))) {
             return Err(AuthError::Revoked);
+        }
+        // Enclave parties must have a usable HPKE wrap key (a small-order key crashed HOT's
+        // export; deep review): probe it once.
+        if matches!(c.role, Role::Hot | Role::Cold | Role::Prod | Role::Rec)
+            && chp_crypto::seal::seal(&c.wrap_pk.0, b"chp-wrap-probe", &[], &[], &mut rand::thread_rng()).is_err()
+        {
+            return Err(AuthError::Cert("unusable wrap key".into()));
         }
         Ok((c, B32(chp_crypto::hash::sha256(bytes))))
     }
