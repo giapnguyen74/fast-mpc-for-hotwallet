@@ -80,7 +80,7 @@ impl Keyring {
 
     /// The highest non-retired version of a key.
     pub fn current(&self, key_id: &KeyId) -> Option<&KeyEntry> {
-        self.keys.iter().filter(|((k, _), e)| k == key_id && e.state != KeyState::Retired).map(|(_, e)| e).last()
+        self.keys.iter().filter(|((k, _), e)| k == key_id && e.state != KeyState::Retired).map(|(_, e)| e).next_back()
     }
 
     pub fn all(&self) -> impl Iterator<Item = &KeyEntry> {

@@ -223,12 +223,10 @@ impl Hot {
         if !matches!(self.wake, Wake::Locked) {
             return refuse("window already proposed or open");
         }
-        let allowed = match (self.cfg.mode, w.return_stage) {
-            (_, ReturnStage::ControlOnly) => true,
-            (Mode::Standard, ReturnStage::PresignSync) => true,
-            (Mode::HighSecurity, ReturnStage::Dkg) => true,
-            _ => false,
-        };
+        let allowed = matches!(
+            (self.cfg.mode, w.return_stage),
+            (_, ReturnStage::ControlOnly) | (Mode::Standard, ReturnStage::PresignSync) | (Mode::HighSecurity, ReturnStage::Dkg)
+        );
         if !allowed {
             return refuse(format!("mode {:?} does not allow {:?}", self.cfg.mode, w.return_stage));
         }

@@ -30,6 +30,31 @@ This is a **prototype and reference implementation** of the design, **not a prod
 
 ---
 
+## Status (2026-11-03)
+
+| Phase | State | Where |
+|---|---|---|
+| 0 Crypto spikes | **done**: DKLs23 split + `t_path` + refresh validated; FROST δ masking + Taproot validated against BIP340/BIP86/BIP341 vectors | `chp-mpc/tests`, `chp-frost` (+ `REVIEW.md`) |
+| 1 Wire, SP1, TEE sim, harness | **done** | `chp-wire`, `chp-auth`, `chp-tee`, `chp-sim` |
+| 2 SP2 + SP3 | **done** (ceremony network simplified, design-notes B9) | `chp-ceremony`, HOT/COLD `import_share` |
+| 3 SP4 + SP5 | **done** | `chp-engine-hot`, `chp-engine-cold`, `chp-engine-prod` |
+| 4 SP6 (ECDSA / EVM) | **done** | engines + `chp-chain`, `chp-policy` |
+| 5 SP7 | **done** (freeze/unfreeze, revocation, policy, retire, PoolStatus, OrphanDelete, restore detection) | engines |
+| 6 SP10 | **done** (EVM addresses, proofs, offline verifier) | `chp-core::address`, PROD |
+| 7 FROST engines + BTC | crypto done; engines not wired | `chp-frost` |
+| 8 SP8 | library refresh validated; ceremony flow not wired | `chp-mpc/tests` |
+| 9 SP9 QR | not started | |
+| 10 Demo / vectors | not started | |
+
+Test count: 98 (`cargo test --workspace`). Capability check: `scripts/check-capabilities.sh`.
+Design feedback collected while building: [`design-notes.md`](design-notes.md).
+
+Layout differences from §2: `chp-mpc` (MPC library adapter, split out of `chp-crypto` so PROD
+has no path to it) and `chp-frost` were added; `chp-store` lives inside the engines,
+`chp-address` inside `chp-core`; `chp-transport` is not built yet (the simulator moves bytes).
+
+---
+
 ## 1. Principles
 
 1. **Sans-I/O engines.** Every party (COLD, HOT, PROD, ceremony) is a pure state machine:

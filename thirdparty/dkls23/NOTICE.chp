@@ -1,0 +1,19 @@
+NOTICE
+
+This repository includes, in thirdparty/dkls23/, the Silence Laboratories DKLs23 library
+(crate sl-dkls23 1.0.1-beta, obtained from crates.io).
+
+thirdparty/dkls23 is licensed under the Silence Laboratories License Agreement,
+Copyright © Silence Laboratories Pte. Ltd. All Rights Reserved.
+See thirdparty/dkls23/LICENSE for the full terms, conditions and disclaimer. That license
+permits Non-Commercial Use only; any commercial use requires a Commercial Use License from
+Silence Laboratories.
+
+Modifications to the Software (2026-11-03), also listed in docs/thirdparty-patches.md and
+thirdparty/dkls23-chp.patch:
+  1. src/sign/messages.rs: added read-only accessors on PreSign (chp_s0, chp_s1, chp_phi,
+     chp_big_r, chp_public_key, chp_party_id).
+  2. Cargo.toml: pinned sl-mpc-mate to =1.0.0-beta.
+
+The library is used by the crates chp-mpc (and, through it, chp-engine-hot,
+chp-engine-cold, chp-ceremony and chp-sim) of this repository.

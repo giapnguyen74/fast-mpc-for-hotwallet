@@ -2,7 +2,7 @@
 //!
 //! * [`matrix`] — who may send which message type to whom (SP1 §6).
 //! * [`trust`]  — pinned roots, current rosters, revocation, quorum verification, certificates,
-//!                anti-rollback of control objects (SP1 §2, §3, §7, §8).
+//!   anti-rollback of control objects (SP1 §2, §3, §7, §8).
 //! * [`link`]   — `LinkHello` handshake and the 6-step frame check (SP1 §4, §5).
 //! * [`quorum`] — quorum signing tool (offline custodians).
 

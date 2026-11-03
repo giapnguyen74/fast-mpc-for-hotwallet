@@ -62,6 +62,9 @@ impl Default for ColdConfig {
 
 const CEREMONY_COUNTER: &str = "ceremony";
 
+/// COLD's own decode and messages, or the outcome to return.
+type Reverified = Result<(chp_chain::Decoded, Vec<[u8; 32]>), (Outcome, String)>;
+
 /// Batch states at COLD (DESIGN SP5 §4): `Rounds → Exported → Imported → Active`, or `Aborted`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum BatchSt {
@@ -748,7 +751,7 @@ impl Cold {
     }
 
     /// COLD's own checks, independent of PROD (DESIGN SP6 step 4.4).
-    fn reverify(&mut self, job: &Job, env: &WithdrawalEnvelope, now: u64) -> Result<(chp_chain::Decoded, Vec<[u8; 32]>), (Outcome, String)> {
+    fn reverify(&mut self, job: &Job, env: &WithdrawalEnvelope, now: u64) -> Reverified {
         let rej = |s: &str| Err((Outcome::Rejected, s.to_string()));
         // UPSTREAM signature with COLD's own copy of UPSTREAM's certificate
         let signer = signer_of(&job.envelope.0).map_err(|e| (Outcome::Rejected, e.to_string()))?;

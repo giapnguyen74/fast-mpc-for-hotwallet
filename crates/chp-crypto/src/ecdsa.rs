@@ -31,7 +31,7 @@ fn dec_point(b: &[u8]) -> Result<ProjectivePoint, CryptoError> {
     use k256::elliptic_curve::sec1::FromEncodedPoint;
     let ep = k256::EncodedPoint::from_bytes(b).map_err(|_| CryptoError::Encoding)?;
     let a: Option<k256::AffinePoint> = k256::AffinePoint::from_encoded_point(&ep).into();
-    a.map(|a| ProjectivePoint::from(a)).ok_or(CryptoError::Encoding)
+    a.map(ProjectivePoint::from).ok_or(CryptoError::Encoding)
 }
 
 /// Encode a point as 33-byte SEC1 compressed.
