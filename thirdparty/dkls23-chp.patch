@@ -1,0 +1,62 @@
+--- /tmp/messages.rs.orig	2026-11-03 14:18:33
++++ src/sign/messages.rs	2026-11-03 14:18:33
+@@ -188,3 +188,39 @@
+     /// R point value
+     pub r: ProjectivePoint,
+ }
++
++// ---------------------------------------------------------------------------
++// CHP PATCH (docs/thirdparty-patches.md, patch 1): read-only accessors.
++//
++// CHP (DESIGN SP6 §4.1) computes the online fragment itself, with the public
++// path tweak `m + r·t`, so it needs the raw presignature values. The struct
++// is already `repr(C)` + `AnyBitPattern`, so this exposes nothing that a
++// bytemuck cast would not; it only makes the access explicit and typed.
++// ---------------------------------------------------------------------------
++impl PreSign {
++    /// Additive share `s₀′_i` with `Σ s₀′ = r·φ·x` (r = R.x mod q).
++    pub fn chp_s0(&self) -> &ScalarBytes {
++        &self.s_0
++    }
++    /// Additive share `s₁_i` with `Σ s₁ = φ·k`.
++    pub fn chp_s1(&self) -> &ScalarBytes {
++        &self.s_1
++    }
++    /// This party's mask share `φ_i`, `Σ φ_i = φ`.
++    pub fn chp_phi(&self) -> &ScalarBytes {
++        &self.phi_i
++    }
++    /// Nonce point `R = k·G` (SEC1 compressed).
++    pub fn chp_big_r(&self) -> &PointBytes {
++        &self.r
++    }
++    /// Public key the presignature was made for (the derived key of the
++    /// presign chain path; CHP always presigns at the root path `m`).
++    pub fn chp_public_key(&self) -> &PointBytes {
++        &self.public_key
++    }
++    /// Library party id of the owner.
++    pub fn chp_party_id(&self) -> u8 {
++        self.party_id
++    }
++}
+--- /tmp/dkls-cargo.orig	2026-11-03 14:22:58
++++ thirdparty/dkls23/Cargo.toml	2026-11-03 14:22:58
+@@ -103,7 +103,7 @@
+ version = "2.2.0"
+ 
+ [dependencies.sl-mpc-mate]
+-version = "1.0.0-beta"
++version = "=1.0.0-beta"
+ 
+ [dependencies.sl-oblivious]
+ version = "=1.0.0-beta"
+@@ -137,7 +137,7 @@
+ version = "0.4.3"
+ 
+ [dev-dependencies.sl-mpc-mate]
+-version = "1.0.0-beta"
++version = "=1.0.0-beta"
+ features = ["simple-relay"]
+ 
+ [dev-dependencies.tokio]

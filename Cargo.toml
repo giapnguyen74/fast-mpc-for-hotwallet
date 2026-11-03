@@ -1,0 +1,58 @@
+[workspace]
+resolver = "2"
+members = ["crates/*"]
+exclude = ["thirdparty"]
+
+[workspace.package]
+edition = "2021"
+version = "0.1.0"
+license = "MIT"
+publish = false
+
+[workspace.dependencies]
+sl-dkls23 = { path = "thirdparty/dkls23", default-features = false }
+sl-mpc-mate = "=1.0.0-beta"
+k256 = { version = "0.13.4", features = ["ecdsa", "arithmetic", "schnorr"] }
+secp256k1 = { version = "0.30", features = ["global-context", "recovery"] }
+ed25519-dalek = { version = "2.2", features = ["rand_core"] }
+x25519-dalek = { version = "2", features = ["static_secrets"] }
+hpke = "0.12"
+sha2 = "0.10"
+sha3 = "0.10"
+hkdf = "0.12"
+rand = "0.8"
+rand_core = "0.6"
+rand_chacha = "0.3"
+serde = { version = "1", features = ["derive"] }
+serde_bytes = "0.11"
+ciborium = "0.2.2"
+thiserror = "1"
+hex = "0.4"
+tokio = { version = "1", features = ["rt", "macros", "sync", "rt-multi-thread"] }
+futures = "0.3"
+zeroize = "1"
+proptest = "1"
+frost-core = "3.0.0"
+frost-ed25519 = "3.0.0"
+frost-secp256k1-tr = "3.0.0"
+curve25519-dalek = "4"
+alloy-rlp = "0.3"
+
+chp-wire = { path = "crates/chp-wire" }
+chp-auth = { path = "crates/chp-auth" }
+chp-crypto = { path = "crates/chp-crypto" }
+chp-tee = { path = "crates/chp-tee" }
+chp-chain = { path = "crates/chp-chain" }
+chp-policy = { path = "crates/chp-policy" }
+chp-core = { path = "crates/chp-core" }
+chp-engine-cold = { path = "crates/chp-engine-cold" }
+chp-engine-hot = { path = "crates/chp-engine-hot" }
+chp-engine-prod = { path = "crates/chp-engine-prod" }
+chp-ceremony = { path = "crates/chp-ceremony" }
+chp-address = { path = "crates/chp-address" }
+
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3
