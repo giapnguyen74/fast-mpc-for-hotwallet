@@ -1,0 +1,23 @@
+[package]
+name = "chp-engine-prod"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "PROD engine: internet-facing, holds HOT's presignature halves only; no MPC code"
+
+# DESIGN rule 6: PROD has no code path into presign, DKG or refresh. Do NOT add chp-mpc,
+# sl-dkls23 or chp-engine-hot/cold here; scripts/check-capabilities.sh enforces it.
+[dependencies]
+chp-wire = { workspace = true }
+chp-auth = { workspace = true }
+chp-crypto = { workspace = true }
+chp-tee = { workspace = true }
+chp-core = { workspace = true }
+chp-chain = { workspace = true }
+chp-policy = { workspace = true }
+serde = { workspace = true }
+ciborium = { workspace = true }
+rand = { workspace = true }
+hex = { workspace = true }
+thiserror = { workspace = true }

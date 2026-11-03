@@ -278,6 +278,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "chp-ceremony"
+version = "0.1.0"
+dependencies = [
+ "chp-auth",
+ "chp-chain",
+ "chp-core",
+ "chp-crypto",
+ "chp-mpc",
+ "chp-tee",
+ "chp-wire",
+ "hex",
+ "k256",
+ "rand 0.8.8",
+ "serde",
+ "thiserror 1.0.69",
+ "tokio",
+]
+
+[[package]]
 name = "chp-chain"
 version = "0.1.0"
 dependencies = [
@@ -323,6 +342,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "chp-engine-cold"
+version = "0.1.0"
+dependencies = [
+ "chp-auth",
+ "chp-chain",
+ "chp-core",
+ "chp-crypto",
+ "chp-mpc",
+ "chp-policy",
+ "chp-tee",
+ "chp-wire",
+ "ciborium",
+ "hex",
+ "rand 0.8.8",
+ "serde",
+ "thiserror 1.0.69",
+]
+
+[[package]]
 name = "chp-engine-hot"
 version = "0.1.0"
 dependencies = [
@@ -332,6 +370,24 @@ dependencies = [
  "chp-mpc",
  "chp-tee",
  "chp-wire",
+ "hex",
+ "rand 0.8.8",
+ "serde",
+ "thiserror 1.0.69",
+]
+
+[[package]]
+name = "chp-engine-prod"
+version = "0.1.0"
+dependencies = [
+ "chp-auth",
+ "chp-chain",
+ "chp-core",
+ "chp-crypto",
+ "chp-policy",
+ "chp-tee",
+ "chp-wire",
+ "ciborium",
  "hex",
  "rand 0.8.8",
  "serde",
@@ -379,6 +435,26 @@ dependencies = [
  "chp-chain",
  "chp-wire",
  "serde",
+]
+
+[[package]]
+name = "chp-sim"
+version = "0.1.0"
+dependencies = [
+ "chp-auth",
+ "chp-ceremony",
+ "chp-chain",
+ "chp-core",
+ "chp-crypto",
+ "chp-engine-cold",
+ "chp-engine-hot",
+ "chp-engine-prod",
+ "chp-tee",
+ "chp-wire",
+ "hex",
+ "k256",
+ "rand 0.8.8",
+ "tokio",
 ]
 
 [[package]]

@@ -1,0 +1,22 @@
+[package]
+name = "chp-ceremony"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Offline quorum tooling: enrollment, DKG ceremony (SP2), share packages (SP3), address book (SP10), REC"
+
+[dependencies]
+chp-wire = { workspace = true }
+chp-auth = { workspace = true }
+chp-crypto = { workspace = true }
+chp-mpc = { workspace = true }
+chp-tee = { workspace = true }
+chp-core = { workspace = true }
+chp-chain = { workspace = true }
+k256 = { workspace = true }
+rand = { workspace = true }
+hex = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true }

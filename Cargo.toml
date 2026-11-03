@@ -50,6 +50,7 @@ chp-engine-cold = { path = "crates/chp-engine-cold" }
 chp-engine-hot = { path = "crates/chp-engine-hot" }
 chp-engine-prod = { path = "crates/chp-engine-prod" }
 chp-ceremony = { path = "crates/chp-ceremony" }
+chp-sim = { path = "crates/chp-sim" }
 chp-address = { path = "crates/chp-address" }
 
 [profile.dev]

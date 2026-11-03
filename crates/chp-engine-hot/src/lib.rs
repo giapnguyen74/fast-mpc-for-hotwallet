@@ -125,6 +125,10 @@ impl Hot {
     pub fn wake_counter(&self) -> u64 {
         self.enclave.counters.read(WAKE_COUNTER)
     }
+    /// Presign runs in progress?
+    pub fn busy(&self) -> bool {
+        !self.runs.is_empty()
+    }
     pub fn is_open(&self) -> bool {
         matches!(self.wake, Wake::Open { .. })
     }
