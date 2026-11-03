@@ -1,16 +1,16 @@
 //! CHP cryptographic primitives (DESIGN SP1, SP3, SP5, SP6 §4.1).
 //!
+//! This crate has **no dependency on the MPC library**: PROD links it, and PROD must have no
+//! code path into key generation, presign or refresh (DESIGN rule 6). Those live in `chp-mpc`.
+//!
 //! * [`hash`]   — length-prefixed, domain-separated hashing used for every digest in CHP.
 //! * [`derive`] — CHP's public path tweak `t_path` (DESIGN SP6 §4 notation) for secp256k1.
 //! * [`ident`]  — Ed25519 identity keys (enclave `id_key`) and signatures.
 //! * [`seal`]   — HPKE (X25519, HKDF-SHA256, ChaCha20-Poly1305) to an enclave `wrap_pk`.
 //! * [`ecdsa`]  — DKLs23 presignature halves, PROD's fragment and COLD's completion.
-//! * [`dkls`]   — bridge that runs the vendored DKLs23 library (DKG, presign, refresh)
-//!                over CHP-framed messages.
 //! * [`verify`] — independent verifiers (libsecp256k1), separate from the MPC library.
 
 pub mod derive;
-pub mod dkls;
 pub mod ecdsa;
 pub mod hash;
 pub mod ident;

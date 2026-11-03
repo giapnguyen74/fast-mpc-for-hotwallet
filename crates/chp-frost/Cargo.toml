@@ -1,0 +1,26 @@
+[package]
+name = "chp-frost"
+description = "CHP Schnorr/FROST split signing (SP6 §4.2): t_path derivation, Taproot sign factors, δ-masked PROD fragments, COLD completion"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lib]
+name = "chp_frost"
+
+[dependencies]
+frost-core = { workspace = true }
+frost-ed25519 = { workspace = true }
+frost-secp256k1-tr = { workspace = true }
+k256 = { workspace = true, features = ["hash2curve"] }
+secp256k1 = { workspace = true }
+ed25519-dalek = { workspace = true }
+curve25519-dalek = { workspace = true }
+sha2 = { workspace = true }
+rand_core = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+rand = { workspace = true }
+hex = { workspace = true }

@@ -41,6 +41,7 @@ alloy-rlp = "0.3"
 chp-wire = { path = "crates/chp-wire" }
 chp-auth = { path = "crates/chp-auth" }
 chp-crypto = { path = "crates/chp-crypto" }
+chp-mpc = { path = "crates/chp-mpc" }
 chp-tee = { path = "crates/chp-tee" }
 chp-chain = { path = "crates/chp-chain" }
 chp-policy = { path = "crates/chp-policy" }

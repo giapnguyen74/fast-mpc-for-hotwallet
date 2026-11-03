@@ -76,16 +76,9 @@ pub struct EcdsaHalf {
 }
 
 impl EcdsaHalf {
-    /// Extract a half from the library's presign output.
-    pub fn from_presign(p: &sl_dkls23::sign::PreSign) -> Self {
-        EcdsaHalf {
-            sid: p.final_session_id,
-            big_r: p.chp_big_r().to_vec(),
-            y: p.chp_public_key().to_vec(),
-            phi: *p.chp_phi(),
-            s0: *p.chp_s0(),
-            s1: *p.chp_s1(),
-        }
+    /// Build a half from raw presign values (see `chp_mpc::half_from_presign`).
+    pub fn from_parts(sid: [u8; 32], big_r: [u8; 33], y: [u8; 33], phi: [u8; 32], s0: [u8; 32], s1: [u8; 32]) -> Self {
+        EcdsaHalf { sid, big_r: big_r.to_vec(), y: y.to_vec(), phi, s0, s1 }
     }
 
     /// Test/simulation helper: deliberately duplicate a half (e.g. to model a storage snapshot).

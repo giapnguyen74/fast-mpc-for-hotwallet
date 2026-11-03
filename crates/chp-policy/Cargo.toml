@@ -1,0 +1,12 @@
+[package]
+name = "chp-policy"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Reference withdrawal policy (deployer content, DESIGN SP7 §4) with a per-party ledger"
+
+[dependencies]
+chp-wire = { workspace = true }
+chp-chain = { workspace = true }
+serde = { workspace = true }

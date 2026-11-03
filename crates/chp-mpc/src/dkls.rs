@@ -28,7 +28,7 @@ use sl_dkls23::{
 use sl_mpc_mate::{coord::MessageSendError, message::MESSAGE_HEADER_SIZE};
 use tokio::sync::mpsc;
 
-use crate::{hash::tagged_hash, CryptoError};
+use chp_crypto::{hash::tagged_hash, CryptoError};
 
 /// Fixed library party ids (DESIGN SP2: HOT, COLD, REC with equal standing).
 pub const PARTY_HOT: u8 = 0;

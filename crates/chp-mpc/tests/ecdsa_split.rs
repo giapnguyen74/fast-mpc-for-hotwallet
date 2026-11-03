@@ -2,9 +2,12 @@
 
 use std::sync::Arc;
 
+use chp_mpc::{
+    dkls::{local_dkg, local_mesh, local_presign, presign_instance, refresh},
+    half_from_presign,
+};
 use chp_crypto::{
     derive::{derived_key, t_path, ROOT_PATH},
-    dkls::{local_dkg, local_mesh, local_presign, presign_instance, refresh},
     ecdsa::{cold_complete, key_from_both_halves, prod_fragment, r_scalar, EcdsaHalf},
     verify::{ecdsa_recover, ecdsa_verify},
     CryptoError,
@@ -14,7 +17,7 @@ use k256::{
     elliptic_curve::{sec1::ToEncodedPoint, PrimeField},
     ProjectivePoint, Scalar,
 };
-use sl_dkls23::keygen::Keyshare;
+use chp_mpc::Keyshare;
 
 const KEY_ID: &[u8] = b"test-key";
 
@@ -24,7 +27,7 @@ async fn dkg() -> Vec<Arc<Keyshare>> {
 
 async fn halves(a: &Arc<Keyshare>, b: &Arc<Keyshare>) -> (EcdsaHalf, EcdsaHalf) {
     let (pa, pb) = local_presign(a.clone(), b.clone(), presign_instance(&rand::random(), 1)).await.unwrap();
-    (EcdsaHalf::from_presign(&pa), EcdsaHalf::from_presign(&pb))
+    (half_from_presign(&pa), half_from_presign(&pb))
 }
 
 fn sign(h: EcdsaHalf, c: EcdsaHalf, m: &[u8; 32], path: &str, y: &ProjectivePoint) -> Result<[u8; 64], CryptoError> {
@@ -206,7 +209,7 @@ async fn refresh_keeps_group_key_and_old_new_mix_fails() {
     match res {
         Err(_) => {}
         Ok((pa, pb)) => {
-            let r = sign(EcdsaHalf::from_presign(&pa), EcdsaHalf::from_presign(&pb), &rand::random(), ROOT_PATH, &y);
+            let r = sign(half_from_presign(&pa), half_from_presign(&pb), &rand::random(), ROOT_PATH, &y);
             assert!(r.is_err(), "old+new shares must not produce a valid signature");
         }
     }

@@ -278,12 +278,34 @@ dependencies = [
 ]
 
 [[package]]
+name = "chp-chain"
+version = "0.1.0"
+dependencies = [
+ "chp-crypto",
+ "hex",
+ "k256",
+ "thiserror 1.0.69",
+]
+
+[[package]]
+name = "chp-core"
+version = "0.1.0"
+dependencies = [
+ "chp-auth",
+ "chp-chain",
+ "chp-crypto",
+ "chp-wire",
+ "hex",
+ "k256",
+ "serde",
+ "thiserror 1.0.69",
+]
+
+[[package]]
 name = "chp-crypto"
 version = "0.1.0"
 dependencies = [
- "derivation-path",
  "ed25519-dalek",
- "futures",
  "hex",
  "hpke",
  "k256",
@@ -295,12 +317,25 @@ dependencies = [
  "serde_bytes",
  "sha2",
  "sha3",
- "sl-dkls23",
- "sl-mpc-mate",
  "thiserror 1.0.69",
- "tokio",
  "x25519-dalek",
  "zeroize",
+]
+
+[[package]]
+name = "chp-engine-hot"
+version = "0.1.0"
+dependencies = [
+ "chp-auth",
+ "chp-core",
+ "chp-crypto",
+ "chp-mpc",
+ "chp-tee",
+ "chp-wire",
+ "hex",
+ "rand 0.8.8",
+ "serde",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -319,6 +354,31 @@ dependencies = [
  "secp256k1",
  "sha2",
  "thiserror 1.0.69",
+]
+
+[[package]]
+name = "chp-mpc"
+version = "0.1.0"
+dependencies = [
+ "chp-crypto",
+ "derivation-path",
+ "futures",
+ "hex",
+ "k256",
+ "rand 0.8.8",
+ "sl-dkls23",
+ "sl-mpc-mate",
+ "thiserror 1.0.69",
+ "tokio",
+]
+
+[[package]]
+name = "chp-policy"
+version = "0.1.0"
+dependencies = [
+ "chp-chain",
+ "chp-wire",
+ "serde",
 ]
 
 [[package]]

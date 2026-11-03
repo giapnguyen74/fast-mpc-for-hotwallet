@@ -4,11 +4,9 @@ edition.workspace = true
 version.workspace = true
 license.workspace = true
 publish.workspace = true
-description = "CHP cryptographic primitives: hashing, path derivation, HPKE, identity signatures, DKLs23 adapter"
+description = "CHP cryptographic primitives: hashing, path derivation, HPKE, identity signatures"
 
 [dependencies]
-sl-dkls23 = { workspace = true }
-sl-mpc-mate = { workspace = true }
 k256 = { workspace = true }
 secp256k1 = { workspace = true }
 ed25519-dalek = { workspace = true }
@@ -22,10 +20,7 @@ serde = { workspace = true }
 serde_bytes = { workspace = true }
 thiserror = { workspace = true }
 hex = { workspace = true }
-tokio = { workspace = true }
-futures = { workspace = true }
 zeroize = { workspace = true }
-derivation-path = "0.2"
 
 [dev-dependencies]
 proptest = { workspace = true }

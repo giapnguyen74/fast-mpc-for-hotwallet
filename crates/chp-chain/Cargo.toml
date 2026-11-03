@@ -1,0 +1,13 @@
+[package]
+name = "chp-chain"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Transaction decoders and sighash: EVM EIP-1559 (prototype scope)"
+
+[dependencies]
+chp-crypto = { workspace = true }
+thiserror = { workspace = true }
+hex = { workspace = true }
+k256 = { workspace = true }
