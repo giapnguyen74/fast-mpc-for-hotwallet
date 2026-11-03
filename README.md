@@ -279,11 +279,32 @@ sequenceDiagram
     end
 ```
 
+## Performance
+
+Measured on **reference hardware**, release build, simulated TEE, in-memory transport (no network).
+Full table, method and reading notes: [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md).
+
+| Operation | Median | p95 | DESIGN estimate |
+|---|---:|---:|---|
+| PROD fragment, per input (DKLs23) | 17.4 µs | 29.6 µs | ~15 µs |
+| COLD combine + independent verify, per input (DKLs23) | 124.7 µs | 237.9 µs | ~160 µs |
+| PROD fragment, per input (FROST-Taproot) | 179.2 µs | 414.1 µs | ~140 µs |
+| COLD check + combine + verify (FROST-Taproot) | 541.5 µs | 922.9 µs | ~400 µs |
+| PROD fragment, per input (FROST-Ed25519) | 71.6 µs | 262.2 µs | ~70 µs |
+| COLD check + combine + verify (FROST-Ed25519) | 206.9 µs | 540.7 µs | ~240 µs |
+| Withdrawal round trip, all checks, no network (SP6) | 793.2 µs | 1.53 ms | < 100 ms p99 incl. one hop |
+| Presign per presignature, batch of 64 (SP4) | 3.54 ms | 3.55 ms | — |
+| Whole key ceremony: enroll + DKG + tests + book + delivery | 474.06 ms | 528.18 ms | — |
+
+The online path costs well under a millisecond of compute per withdrawal; a deployment adds one
+network hop PROD → COLD. Presign (offline, inside wake windows) is the expensive part.
+
 ## Documents
 
 - [`docs/DESIGN.md`](docs/DESIGN.md) — the protocol design.
 - [`docs/PLAN.md`](docs/PLAN.md) — implementation plan: scope, workspace layout, phases, testing.
 - [`docs/design-notes.md`](docs/design-notes.md) — findings and proposed design changes from building it.
+- [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md) — timings on reference hardware.
 - [`crates/chp-frost/REVIEW.md`](crates/chp-frost/REVIEW.md) — FROST / Taproot validation report.
 
 ## Layout
@@ -310,6 +331,7 @@ Rust workspace (see [`docs/PLAN.md`](docs/PLAN.md)):
 ```sh
 ./scripts/web-demo.sh                 # animated web demo of a real run → http://127.0.0.1:14080
 cargo run -p chp-sim --example demo   # narrated run of every flow above, every message printed
+cargo run --release -p chp-sim --example bench   # timings (see docs/BENCHMARKS.md)
 cargo test --workspace                # 98 tests: crypto validation, SP1, engines, end-to-end, adversarial
 ./scripts/check-capabilities.sh       # PROD has no dependency path to MPC / key-management code
 ```
