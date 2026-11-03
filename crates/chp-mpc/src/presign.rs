@@ -20,7 +20,14 @@ struct Instance {
     outgoing: mpsc::UnboundedReceiver<Vec<u8>>,
     incoming: mpsc::UnboundedSender<Vec<u8>>,
     handle: Option<JoinHandle<Result<sl_dkls23::sign::PreSign, CryptoError>>>,
+    /// Result of an instance that already finished (collected by `reap`).
+    done: Option<Result<sl_dkls23::sign::PreSign, CryptoError>>,
 }
+
+/// Max presign instances per batch. A **security parameter**, not only throughput: every
+/// instance is one selective-failure probe against the peer's base-OT secret before the batch
+/// can freeze (security review round 3), so batches stay small.
+pub const MAX_BATCH: usize = 16;
 
 /// A running presign batch on one side (HOT or COLD).
 pub struct BatchRun {
@@ -32,14 +39,20 @@ impl BatchRun {
     /// Start one library instance per id. Must be called inside a tokio runtime.
     pub fn start(share: Arc<Keyshare>, batch_id: [u8; 32], ids: &[u64]) -> Self {
         assert!(ids.windows(2).all(|w| w[0] < w[1]), "presig ids must be strictly increasing");
+        assert!(ids.len() <= MAX_BATCH, "batch larger than MAX_BATCH");
         let mut inst = BTreeMap::new();
         for &id in ids {
             let (relay, end) = bridge();
             let share = share.clone();
             let handle = tokio::spawn(presign(share, [PARTY_HOT, PARTY_COLD], presign_instance(&batch_id, id), rand::random(), relay));
-            inst.insert(id, Instance { outgoing: end.outgoing, incoming: end.incoming, handle: Some(handle) });
+            inst.insert(id, Instance { outgoing: end.outgoing, incoming: end.incoming, handle: Some(handle), done: None });
         }
         BatchRun { batch_id, inst }
+    }
+
+    /// An empty run (placeholder so a failed batch can go through the common fault path).
+    pub fn empty(batch_id: [u8; 32]) -> Self {
+        BatchRun { batch_id, inst: BTreeMap::new() }
     }
 
     /// Library messages produced since the last call, tagged with their presig id.
@@ -57,6 +70,24 @@ impl BatchRun {
     pub fn deliver(&mut self, id: u64, payload: Vec<u8>) -> Result<(), CryptoError> {
         let i = self.inst.get(&id).ok_or(CryptoError::Mpc(format!("unknown presig id {id}")))?;
         i.incoming.send(payload).map_err(|_| CryptoError::Mpc("instance finished".into()))
+    }
+
+    /// Collect the results of instances that have finished, without waiting. Returns `true` if
+    /// any instance has **failed**: the caller must then abort the batch and freeze at once
+    /// (a failing instance is a selective-failure probe; security review round 3).
+    pub fn any_failed(&mut self) -> bool {
+        use futures::FutureExt;
+        for i in self.inst.values_mut() {
+            if i.handle.as_ref().is_some_and(|h| h.is_finished()) {
+                let h = i.handle.take().unwrap();
+                i.done = Some(match h.now_or_never() {
+                    Some(Ok(r)) => r,
+                    Some(Err(e)) => Err(CryptoError::Mpc(e.to_string())),
+                    None => Err(CryptoError::Mpc("instance not ready".into())),
+                });
+            }
+        }
+        self.inst.values().any(|i| matches!(i.done, Some(Err(_))))
     }
 
     /// All instances finished (successfully or not)? Callers must check this **before** the
@@ -81,14 +112,17 @@ impl BatchRun {
         let mut out = Vec::new();
         let mut err = None;
         for (id, i) in self.inst.iter_mut() {
-            let h = i.handle.take().ok_or(CryptoError::Mpc("already taken".into()))?;
-            match h.await {
-                Ok(Ok(mut p)) => {
+            let res = match (i.done.take(), i.handle.take()) {
+                (Some(r), _) => r,
+                (None, Some(h)) => h.await.map_err(|e| CryptoError::Mpc(e.to_string())).and_then(|r| r),
+                (None, None) => Err(CryptoError::Mpc("already taken".into())),
+            };
+            match res {
+                Ok(mut p) => {
                     out.push((*id, half_from_presign(&p)));
                     zeroize::Zeroize::zeroize(&mut p); // the library's copy of the half
                 }
-                Ok(Err(e)) => err = Some(e),
-                Err(e) => err = Some(CryptoError::Mpc(e.to_string())),
+                Err(e) => err = Some(e),
             }
         }
         match err {

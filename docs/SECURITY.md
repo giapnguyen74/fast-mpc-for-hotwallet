@@ -115,6 +115,21 @@ compromised PROD copied during the incident are then useless, even if COLD is br
 Key shares are untouched (design-notes E8). Test: `compromised_prod_cannot_redirect_funds`
 (the stolen half is refused after the Unfreeze; mutation-checked).
 
+## Round 3 (deep review)
+
+Four reviewers with different methods: an audit of the vendored DKLs23 library internals with a
+malicious-peer harness, randomised attack-sequence testing of the protocol invariants, fuzzing of
+every untrusted-input parser, and a design-level threat analysis. Tests in
+`crates/chp-sim/tests/security_review_r3.rs` († = mutation-checked).
+
+| # | Sev | Finding | Fix · test |
+|---|---|---|---|
+| D1 | **Critical** | **Selective-failure OT probe in DKLs23 presign.** A malicious presign peer crafts its OT messages so that each instance's pass/abort reveals 4 bits of the honest side's long-term base-OT secret (Δ); about 500 probes recover Δ, then one more presign recovers that side's signing share, so a compromised HOT gets the key with COLD's half (confirmed with the reviewer's harness, re-run independently). CHP's "freeze on presign fault, no retry" was weaker than designed: one batch gave up to 256 probes before its single freeze; link loss, window close and deadline aborts gave probes **with no freeze at all**; and after an Unfreeze the same Δ kept presigning | freeze on the **first** failed instance (the rest of the batch stops at once); every abort path checks for failed instances first; a presign fault **taints the key version for good** (no presign even after Unfreeze; recovery is a refresh with fresh OT seeds, or a sweep to a new key); a peer's Presign FreezeNotice taints too; batch size capped at 16 as a security parameter · `a_failed_presign_instance_freezes_and_taints_the_key_version` †, `a_link_loss_after_a_failed_instance_still_freezes` †, `batch_size_is_capped` |
+| D2 | **Critical** (design) | **The ceremony quorum could swap a key.** A quorum-signed "refresh" manifest v+1 with another group key was accepted, and a different manifest for an installed version was silently ignored | a new version must keep the key's group key, protocol and chain; a different manifest for an installed version is refused · `a_new_key_version_cannot_swap_the_group_key` |
+
+The remaining design-level findings of round 3 need decisions and are listed in
+[`design-notes.md`](design-notes.md) section F.
+
 ## Open items (accepted for the prototype)
 
 | Item | Why open |

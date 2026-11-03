@@ -46,7 +46,7 @@ This is a **prototype and reference implementation** of the design, **not a prod
 | 9 SP9 QR | not started | |
 | 10 Demo / vectors | not started | |
 
-Test count: 124 (`cargo test --workspace`). Security review: [`SECURITY.md`](SECURITY.md). Capability check: `scripts/check-capabilities.sh`.
+Test count: 128 (`cargo test --workspace`). Security review: [`SECURITY.md`](SECURITY.md). Capability check: `scripts/check-capabilities.sh`.
 Design feedback collected while building: [`design-notes.md`](design-notes.md).
 
 Layout differences from §2: `chp-mpc` (MPC library adapter, split out of `chp-crypto` so PROD

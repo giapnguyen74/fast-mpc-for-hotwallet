@@ -50,7 +50,7 @@ pub struct HotConfig {
 }
 
 const WAKE_COUNTER: &str = "wake";
-const MAX_BATCH: usize = 256;
+const MAX_BATCH: usize = chp_mpc::presign::MAX_BATCH;
 
 #[derive(Debug)]
 enum Wake {
@@ -127,6 +127,26 @@ impl Hot {
     pub fn wake_counter(&self) -> u64 {
         self.enclave.counters.read(WAKE_COUNTER)
     }
+    /// **Simulation only**: a compromised HOT presigns with another key share (its presign
+    /// messages then make COLD's consistency checks fail, like a malicious probe).
+    #[cfg(feature = "sim-hooks")]
+    pub fn adversary_set_share(&mut self, key_id: KeyId, kv: u32, share: Keyshare) {
+        self.shares.insert((key_id, kv), Arc::new(share));
+    }
+
+    /// **Simulation only**: a malicious HOT keeps sending its presign messages and never runs its
+    /// own failure handling (it would not announce its probes).
+    #[cfg(feature = "sim-hooks")]
+    pub fn sim_drain_presign_only(&mut self) {
+        let ids: Vec<B32> = self.runs.keys().copied().collect();
+        for b in ids {
+            let msgs = self.runs.get_mut(&b).unwrap().1.drain_outgoing();
+            for (id, payload) in msgs {
+                self.send(MsgType::PresignMsg, &PresignMsg { batch_id: b, presig_id: id, payload: Bytes(payload) });
+            }
+        }
+    }
+
     /// **Simulation only**: a compromised HOT sends an arbitrary frame to COLD on the link.
     #[cfg(feature = "sim-hooks")]
     pub fn adversary_send(&mut self, t: MsgType, body: &impl serde::Serialize) {
@@ -154,7 +174,15 @@ impl Hot {
 
     /// Power off: erase all session state (DESIGN SP4 §2 step 6).
     pub fn power_off(&mut self) {
-        for (_, (_, mut r)) in std::mem::take(&mut self.runs) {
+        // A failed instance in any batch still running was a probe on HOT's base-OT secret:
+        // taint the key version even though the window is ending.
+        for (_, (o, mut r)) in std::mem::take(&mut self.runs) {
+            if r.any_failed() {
+                self.keyring.taint_presign(&o.key_id, o.key_version);
+                if self.keyring.freeze(&o.key_id, o.key_version, Fault::Presign, o.batch_id) {
+                    self.events.push(Event::Frozen { key_id: o.key_id, fault: Fault::Presign });
+                }
+            }
             r.abort();
         }
         self.wake = Wake::Locked;
@@ -402,7 +430,7 @@ impl Hot {
         if k.state != chp_wire::KeyState::Active {
             return Some(RefuseReason::KeyNotActive);
         }
-        if k.frozen.is_some() {
+        if k.frozen.is_some() || k.presign_tainted {
             return Some(RefuseReason::KeyFrozen);
         }
         if k.manifest.protocol != o.protocol || !self.shares.contains_key(&(o.key_id, o.key_version)) {
@@ -449,6 +477,18 @@ impl Hot {
         }
         let ids: Vec<B32> = self.runs.keys().copied().collect();
         for b in ids {
+            // First failure: stop everything at once (no further probes), freeze and taint.
+            if self.runs.get_mut(&b).unwrap().1.any_failed() {
+                let (o, _) = &self.runs[&b];
+                let (key_id, kv, batch_id) = (o.key_id, o.key_version, o.batch_id);
+                self.keyring.taint_presign(&key_id, kv);
+                self.keyring.freeze(&key_id, kv, Fault::Presign, batch_id);
+                self.events.push(Event::Frozen { key_id, fault: Fault::Presign });
+                self.send(MsgType::FreezeNotice, &FreezeNotice { key_id, key_version: kv, fault: Fault::Presign, evidence_hash: batch_id });
+                self.send(MsgType::WakeClose, &WakeClose { reason: "presign fault".into() });
+                self.power_off();
+                return;
+            }
             let done = self.runs[&b].1.is_finished(); // before the drain: no message is lost
             let msgs = self.runs.get_mut(&b).unwrap().1.drain_outgoing();
             for (id, payload) in msgs {
@@ -460,6 +500,7 @@ impl Hot {
                     Ok(halves) => self.export(o, halves, now),
                     Err(e) => {
                         // DESIGN SP4 §6: consistency failure → batch aborted, key frozen, no retry.
+                        self.keyring.taint_presign(&o.key_id, o.key_version);
                         self.keyring.freeze(&o.key_id, o.key_version, Fault::Presign, o.batch_id);
                         self.events.push(Event::Frozen { key_id: o.key_id, fault: Fault::Presign });
                         self.events.push(Event::Info(format!("presign fault: {e}")));

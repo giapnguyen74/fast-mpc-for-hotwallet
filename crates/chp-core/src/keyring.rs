@@ -36,6 +36,11 @@ pub struct KeyEntry {
     pub frozen: Option<Fault>,
     /// Evidence of the freeze in force; an `Unfreeze` must name it.
     pub freeze_evidence: Option<chp_wire::B32>,
+    /// A presign fault happened on this version: its key shares' base-OT secrets may have been
+    /// probed (selective-failure attack). Presign stays refused for this version for good, even
+    /// after an Unfreeze; recovery is a refresh (fresh OT seeds) or a sweep to a new key.
+    #[serde(default)]
+    pub presign_tainted: bool,
 }
 
 impl KeyEntry {
@@ -44,6 +49,11 @@ impl KeyEntry {
     }
     pub fn usable(&self) -> bool {
         self.state == KeyState::Active && self.frozen.is_none()
+    }
+
+    /// May new presignatures be made for this version?
+    pub fn presign_allowed(&self) -> bool {
+        self.usable() && !self.presign_tainted
     }
 }
 
@@ -65,7 +75,19 @@ impl Keyring {
         if m.protocol == Protocol::Dkls23Secp256k1 && decode_point(&m.group_key.0).is_none() {
             return Err(KeyError::BadManifest("group key"));
         }
+        // A new version of an existing key (refresh) must keep the same group key, protocol and
+        // chain: a quorum cannot swap in another key under an existing key_id (deep review C1).
+        if let Some(other) = self.keys.iter().find(|((id, v), _)| *id == m.key_id && *v != m.key_version).map(|(_, e)| e) {
+            if other.manifest.group_key != m.group_key || other.manifest.protocol != m.protocol || other.manifest.chain != m.chain {
+                return Err(KeyError::BadManifest("a new version must keep the key's group key, protocol and chain"));
+            }
+        }
         let k = (m.key_id, m.key_version);
+        if let Some(existing) = self.keys.get(&k) {
+            if existing.manifest != m {
+                return Err(KeyError::BadManifest("a different manifest for an installed key version"));
+            }
+        }
         self.keys.entry(k).or_insert(KeyEntry {
             manifest: m,
             manifest_bytes: bytes.to_vec(),
@@ -73,6 +95,7 @@ impl Keyring {
             state: KeyState::ActivePending,
             frozen: None,
             freeze_evidence: None,
+            presign_tainted: false,
         });
         Ok(&self.keys[&k])
     }
@@ -153,6 +176,13 @@ impl Keyring {
                 true
             }
             _ => false,
+        }
+    }
+
+    /// Mark a version presign-tainted (permanent for this version).
+    pub fn taint_presign(&mut self, key_id: &KeyId, version: u32) {
+        if let Some(e) = self.keys.get_mut(&(*key_id, version)) {
+            e.presign_tainted = true;
         }
     }
 

@@ -222,6 +222,25 @@ impl Cold {
         self.st = ciborium::from_reader(snap).expect("snapshot");
     }
 
+    /// **Simulation only**: send pending presign library messages without running `poll`'s
+    /// failure check (models the race where a failure exists but the link drops first).
+    #[cfg(feature = "sim-hooks")]
+    pub fn sim_drain_presign_only(&mut self) {
+        let ids: Vec<B32> = self.runs.keys().copied().collect();
+        for b in ids {
+            let msgs = self.runs.get_mut(&b).unwrap().drain_outgoing();
+            for (id, payload) in msgs {
+                self.send(Role::Hot, MsgType::PresignMsg, &PresignMsg { batch_id: b, presig_id: id, payload: Bytes(payload) });
+            }
+        }
+    }
+
+    /// **Simulation only**: has any running presign instance failed (no fault handling)?
+    #[cfg(feature = "sim-hooks")]
+    pub fn sim_presign_failed(&mut self) -> bool {
+        self.runs.values_mut().any(|r| r.any_failed())
+    }
+
     /// **Simulation only**: a compromised COLD sends an arbitrary frame to HOT on the link.
     #[cfg(feature = "sim-hooks")]
     pub fn adversary_send_to_hot(&mut self, t: MsgType, body: &impl Serialize) {
@@ -272,6 +291,15 @@ impl Cold {
         self.hot = None;
         self.prod = None;
         self.wake = Wake::Closed;
+        // Batches in flight die with the restart; a failed instance among them still taints.
+        let inflight: Vec<B32> = self.runs.keys().copied().collect();
+        for b in inflight {
+            if self.runs.get_mut(&b).unwrap().any_failed() {
+                if let Some(x) = self.st.batches.get(&b).cloned() {
+                    self.st.keyring.taint_presign(&x.pool.key_id, x.pool.key_version);
+                }
+            }
+        }
         self.runs.clear();
         // Control state: a sealed counter value below the hardware value means the storage was
         // restored to an earlier control state (before a freeze, revocation, policy change…).
@@ -365,9 +393,9 @@ impl Cold {
         match role {
             Role::Hot => {
                 self.hot = None;
-                for (b, mut r) in std::mem::take(&mut self.runs) {
-                    r.abort();
-                    self.abort_batch(&b, AbortReason::LinkLost);
+                for (b, r) in std::mem::take(&mut self.runs) {
+                    self.runs.insert(b, r);
+                    self.abort_batch(&b, AbortReason::LinkLost); // checks for failed instances
                 }
                 self.wake = Wake::Closed;
             }
@@ -440,6 +468,10 @@ impl Cold {
             }
             MsgType::FreezeNotice => {
                 let f: FreezeNotice = decode_canonical(&body).unwrap();
+                if f.fault == Fault::Presign {
+                    // the peer saw a presign fault: this key version never presigns again
+                    self.st.keyring.taint_presign(&f.key_id, f.key_version);
+                }
                 self.freeze(f.key_id, f.key_version, f.fault, f.evidence_hash, Some(from));
                 Ok(())
             }
@@ -527,8 +559,8 @@ impl Cold {
         }
         let (key_id, kv) = (w.key_id, w.key_version);
         let k = self.st.keyring.get(&key_id, kv).ok_or(ColdError::Refused("unknown key".into()))?;
-        if !k.usable() || !self.st.book.path_active(&key_id, path) || !self.shares.contains_key(&(key_id, kv)) {
-            return refuse("key not usable or path not active");
+        if !k.presign_allowed() || !self.st.book.path_active(&key_id, path) || !self.shares.contains_key(&(key_id, kv)) {
+            return refuse("key not usable for presign (frozen, tainted by a presign fault) or path not active");
         }
         let protocol = k.manifest.protocol;
         let pid = PoolId { key_id, key_version: kv, path: path.into() };
@@ -544,7 +576,7 @@ impl Cold {
         let block = b as u32;
         let pool = self.st.pools.get_mut(&pid).unwrap();
         pool.next_block = block + 1;
-        let n = self.cfg.batch_size;
+        let n = self.cfg.batch_size.min(chp_mpc::presign::MAX_BATCH as u16);
         let ids: Vec<PresigId> = (0..n).map(|i| presig_id::make(self.cfg.hot_replica, self.cfg.replica, block, i)).collect();
         if ids[0] <= pool.high_water {
             return refuse("ids not above high-water");
@@ -586,7 +618,31 @@ impl Cold {
             }
         }
         if let Some(mut r) = self.runs.remove(batch_id) {
+            // Even when the batch ends for another reason (link loss, refusal, deadline), an
+            // instance that already failed was a probe: it still freezes and taints the key.
+            let failed = r.any_failed();
             r.abort();
+            if failed {
+                self.presign_fault(batch_id, "an instance failed before the batch ended");
+            }
+        }
+    }
+
+    /// A presign instance failed (DESIGN SP4 §6). Each failure can be a selective-failure probe
+    /// on this side's base-OT secret (security review round 3), so: stop the whole batch now,
+    /// freeze the key, close the window, and taint the key version so it never presigns again
+    /// (recovery: refresh with fresh OT seeds, or sweep to a new key).
+    fn presign_fault(&mut self, batch_id: &B32, detail: &str) {
+        if let Some(mut r) = self.runs.remove(batch_id) {
+            r.abort();
+        }
+        let Some(b) = self.st.batches.get(batch_id).cloned() else { return };
+        self.end_batch_nothing_stored(batch_id);
+        self.st.keyring.taint_presign(&b.pool.key_id, b.pool.key_version);
+        self.ev(Event::Info(format!("presign fault: {detail}; key version presign-tainted")));
+        self.freeze(b.pool.key_id, b.pool.key_version, Fault::Presign, *batch_id, None);
+        if self.wake_open() {
+            self.close_wake("presign fault");
         }
     }
 
@@ -595,6 +651,11 @@ impl Cold {
         let now = self.cold_now(now);
         let ids: Vec<B32> = self.runs.keys().copied().collect();
         for b in ids {
+            // First failure: stop the batch at once (no further probes) and freeze.
+            if self.runs.get_mut(&b).unwrap().any_failed() {
+                self.presign_fault(&b, "instance failed");
+                continue;
+            }
             let done = self.runs[&b].is_finished(); // before the drain: no message is lost
             let msgs = self.runs.get_mut(&b).unwrap().drain_outgoing();
             for (id, payload) in msgs {
@@ -620,10 +681,8 @@ impl Cold {
                         self.try_activate(&b);
                     }
                     Err(e) => {
-                        self.ev(Event::Info(format!("presign fault: {e}")));
-                        self.end_batch_nothing_stored(&b);
-                        self.freeze(batch.pool.key_id, batch.pool.key_version, Fault::Presign, b, None);
-                        self.close_wake("presign fault");
+                        self.runs.insert(b, chp_mpc::presign::BatchRun::empty(b.0));
+                        self.presign_fault(&b, &e.to_string());
                     }
                 }
             }
