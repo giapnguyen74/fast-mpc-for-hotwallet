@@ -9,7 +9,7 @@
 use chp_auth::{sign_body, trust::Trust};
 use chp_core::{address::verify_proof, digest::ssid};
 use chp_crypto::{derive::t_path, ecdsa::prod_fragment, ident::IdKey};
-use chp_sim::*;
+use chp_sim::{trace, *};
 use chp_wire::{decode_canonical, msgs::*, Bytes, MsgType, Role, B32};
 
 const ETH: u128 = 1_000_000_000_000_000_000;
@@ -17,9 +17,11 @@ const ATTACKER: &str = "0x6666666666666666666666666666666666666666";
 
 fn step(n: &str, title: &str) {
     println!("\n━━ {n} · {title} {}", "━".repeat(80usize.saturating_sub(title.len() + n.len())));
+    trace::step(n, title);
 }
 fn note(s: &str) {
     println!("  ▸ {s}");
+    trace::note(s);
 }
 
 fn book_address(w: &World, path: &str) -> String {
@@ -29,7 +31,7 @@ fn book_address(w: &World, path: &str) -> String {
 
 async fn wake_and_presign(w: &mut World, batches: u32, why: &str) {
     note(&format!("operators at COLD and at HOT agree to wake HOT ({why})"));
-    w.hot.boot();
+    w.hot_boot();
     let counter = w.hot.wake_counter();
     note(&format!("HOT powers on LOCKED and shows its hardware wake counter = {counter}"));
     w.pump().await;
@@ -51,7 +53,7 @@ async fn wake_and_presign(w: &mut World, batches: u32, why: &str) {
     }
     w.cold.close_wake("refill done");
     w.pump().await;
-    w.hot.power_off();
+    w.hot_off();
     w.cold.link_lost(Role::Hot);
     note("window closed: HOT erased all session state and POWERED OFF (it holds no halves)");
 }
@@ -59,6 +61,7 @@ async fn wake_and_presign(w: &mut World, batches: u32, why: &str) {
 async fn carry(w: &mut World) {
     note(&format!("an operator (not PROD's custodian) carries {} bundle(s) on removable media to PROD", w.media.len()));
     for b in std::mem::take(&mut w.media) {
+        trace::msg("MEDIA", "PROD", "MediaBundle", "carried by hand, imported", "media");
         note("PROD imports: HOT cert ✔ signature ✔ seq 0 ✔ HPKE open ✔ recompute digest ✔ ids above high-water ✔ → Pending");
         w.prod.import_media(&b, w.now).unwrap();
         w.pump().await;
@@ -71,6 +74,7 @@ async fn withdraw(w: &mut World, value: u128, label: &str) -> u64 {
     let (rid, env) = w.envelope(raw, PATH);
     note(&format!("UPSTREAM signs WithdrawalEnvelope{{request {}, {label}, path {PATH}, not_after +120s}}", hex::encode(&rid.0[..4])));
     note("PROD admission (no state change on refusal): UPSTREAM sig ✔ fresh ✔ not replayed ✔ key active ✔ own decode ✔ own policy ✔ halves available ✔");
+    trace::msg("UPSTREAM", "PROD", "WithdrawalEnvelope", label, "api");
     let job = w.prod.withdraw(&env, w.now).expect("admitted");
     note("PROD takes the next half (deleted BEFORE computing), computes ssid + 96-byte fragment, HPKE-seals it to COLD");
     w.pump().await;
@@ -79,6 +83,8 @@ async fn withdraw(w: &mut World, value: u128, label: &str) -> u64 {
 
 #[tokio::main(flavor = "multi_thread")]
 async fn main() {
+    trace::enable();
+    let json_out = std::env::args().skip_while(|a| a != "--json").nth(1);
     println!("╔══════════════════════════════════════════════════════════════════════════════════╗");
     println!("║  COLD-HOT-PROD (CHP) demo — prototype / reference implementation (simulated TEE) ║");
     println!("║  Parties: HOT (offline share) · COLD (share, only signer) · PROD (online, no share)║");
@@ -114,7 +120,9 @@ async fn main() {
     let q = AddressQuery { request_id: B32(rand::random()), chain: CHAIN.into(), address: None, path: Some(PATH.into()), nonce, not_after: w.now + 60 };
     let qf = sign_body(&w.requester, MsgType::AddressQuery, 0, &q);
     note("requester → PROD AddressQuery{path, nonce} (signed by the enrolled requester)");
+    trace::msg("REQUESTER", "PROD", "AddressQuery", format!("path {PATH}"), "api");
     let proof = w.prod.address_query(&qf, w.now).unwrap();
+    trace::msg("PROD", "REQUESTER", "AddressProof", "book + manifest + PROD sig", "api");
     note("PROD → requester AddressProof{entry, AddressBook, KeyManifest, PROD cert} signed by PROD");
     let pinned_only = Trust::new(&w.q.pinned());
     let e = verify_proof(&pinned_only, &proof, &nonce, 0, w.now).unwrap();
@@ -142,22 +150,30 @@ async fn main() {
         sealed: Sealed { enc: Bytes::default(), ct: Bytes::default() },
     };
     let seq = job.job_seq;
+    trace::msg("UPSTREAM", "PROD", "WithdrawalEnvelope", "1 ETH → allowlisted", "api");
+    trace::event("PROD", "COMPROMISED: fragment computed for 9 ETH → attacker", "fault");
     w.prod.adversary_send_job(job, &[frag]);
     w.pump().await;
     let st = w.status_of(seq).unwrap();
     note(&format!("COLD decodes UPSTREAM's tx itself; the combined signature fails verification → {:?}", st.outcome));
     note(&format!("broadcasts so far: {} (nothing invalid is ever broadcast)", w.broadcasts.len()));
+    trace::msg("UPSTREAM", "PROD", "WithdrawalEnvelope", "new request while frozen", "api");
     let r = w.withdraw(DEST, 1, PATH).await;
+    trace::event("PROD", "refused at admission: key frozen", "warn");
     note(&format!("while frozen, PROD refuses new requests: {}", r.unwrap_err()));
     note("investigation done → custodians sign Unfreeze{version 1} (M-of-N); each party verifies it itself");
+    trace::msg("QUORUM", "COLD", "Unfreeze", "version 1 (M-of-N)", "quorum");
+    trace::msg("QUORUM", "PROD", "Unfreeze", "version 1 (M-of-N)", "quorum");
     let u = w.unfreeze();
     w.flush_events();
+    w.snap();
     note(&format!("replaying that Unfreeze is refused: {}", w.cold.apply_quorum(&u, w.now).is_err()));
 
     // ------------------------------------------------------------------ COLD restart
     step("§6.1", "COLD restart: hardware counter closes the open block");
     let before = w.prod.available(&pool);
     w.cold.boot();
+    trace::event("COLD", "reboot: restore check ✔ → pool counter incremented, open block closed", "warn");
     note("COLD boots: per pool, sealed counter value vs hardware value (restore check) → increment counter");
     w.prod.link_lost();
     w.connect_prod();
@@ -178,6 +194,8 @@ async fn main() {
     let tls = B32([9; 32]);
     let (n, h) = w.cold.dial(tls);
     let reply = w.prod.on_hello(&h, tls, w.now).unwrap();
+    trace::msg("PROD", "COLD", "LinkHello", "old PROD tries to come back", "fault");
+    trace::event("COLD", "refused LinkHello: revoked", "warn");
     note(&format!("old PROD tries to link again → COLD refuses: {}", w.cold.on_hello_reply(&reply, tls, n, w.now).unwrap_err()));
     let _ = old_prod_cert;
 
@@ -201,14 +219,20 @@ async fn main() {
     let auditor = IdKey::generate(&mut rand::thread_rng());
     let cert = w.q.enroll_client(Role::Requester, auditor.public(), w.now, 86_400);
     w.prod.apply_quorum(&cert, w.now).unwrap();
+    trace::msg("QUORUM", "REQUESTER", "PartyCert", "new auditor (role Requester)", "quorum");
+    trace::msg("QUORUM", "PROD", "PartyCert (auditor)", "enrolled requester", "quorum");
     note("quorum signs PartyCert{role Requester}; PROD enrolls it");
     let nonce = B32(rand::random());
     let q = AddressQuery { request_id: B32(rand::random()), chain: CHAIN.into(), address: Some(book_address(&w, PATH2)), path: None, nonce, not_after: w.now + 60 };
     let proof = w.prod.address_query(&sign_body(&auditor, MsgType::AddressQuery, 0, &q), w.now).unwrap();
+    trace::msg("REQUESTER", "PROD", "AddressQuery", "auditor: hot address 2", "api");
+    trace::msg("PROD", "REQUESTER", "AddressProof", "verifies offline", "api");
     let ok = verify_proof(&pinned_only, &proof, &nonce, 0, w.now).is_ok();
     note(&format!("auditor asks about {} → proof verifies offline: {ok}", book_address(&w, PATH2)));
     let q2 = AddressQuery { request_id: B32(rand::random()), chain: CHAIN.into(), address: Some(ATTACKER.into()), path: None, nonce: B32(rand::random()), not_after: w.now + 60 };
     let nf = w.prod.address_query(&sign_body(&auditor, MsgType::AddressQuery, 0, &q2), w.now).unwrap();
+    trace::msg("REQUESTER", "PROD", "AddressQuery", "auditor: attacker's address", "api");
+    trace::msg("PROD", "REQUESTER", "NotFound", "signed: not ours", "api");
     let f: chp_wire::SignedMsg = decode_canonical(&nf).unwrap();
     note(&format!("auditor asks about {ATTACKER} → {:?} (never \"probably ours\")", MsgType::from_code(f.msg_type).unwrap()));
 
@@ -227,4 +251,10 @@ async fn main() {
     }
     note("the full private key never existed; PROD never held a share; every frame was signed,");
     note("sequence-checked and role-checked before it was parsed.");
+    w.snap();
+    if let Some(path) = json_out {
+        let items = trace::take();
+        std::fs::write(&path, serde_json::to_string_pretty(&items).unwrap()).unwrap();
+        println!("\ntrace written to {path} ({} items)", items.len());
+    }
 }

@@ -30,8 +30,13 @@ The full design, including ten sub-protocols (SP1–SP10), is in [`docs/DESIGN.m
 
 ## How it works: the flows
 
-Each diagram shows what the prototype actually does. Run
-`cargo run -p chp-sim --example demo` to watch every one of these flows with each message printed.
+Each diagram shows what the prototype actually does. To watch these flows live:
+
+- **Web, animated:** `./scripts/web-demo.sh`, then open http://127.0.0.1:14080. The page replays a
+  real run recorded from the simulator (`web/trace.json`): every arrow is a real signed frame, and
+  node states (HOT power, frozen keys, presignature counts, revoked PROD) come from the engines.
+  Play/pause, speed, single-step, and jump to any step.
+- **Terminal:** `cargo run -p chp-sim --example demo` prints every message.
 
 ### 1. Parties, networks and what each holds
 
@@ -303,6 +308,7 @@ Rust workspace (see [`docs/PLAN.md`](docs/PLAN.md)):
 ## Running
 
 ```sh
+./scripts/web-demo.sh                 # animated web demo of a real run → http://127.0.0.1:14080
 cargo run -p chp-sim --example demo   # narrated run of every flow above, every message printed
 cargo test --workspace                # 98 tests: crypto validation, SP1, engines, end-to-end, adversarial
 ./scripts/check-capabilities.sh       # PROD has no dependency path to MPC / key-management code

@@ -1,0 +1,407 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🔐</text></svg>">
+<title>CHP · COLD-HOT-PROD protocol — animated demo</title>
+<style>
+  :root {
+    --bg: #0d1117; --panel: #161b22; --line: #30363d; --text: #e6edf3; --muted: #8b949e;
+    --hot: #f0883e; --cold: #58a6ff; --prod: #d2a8ff; --rec: #7ee787; --quorum: #e3b341;
+    --api: #39c5cf; --chain: #a5d6ff; --media: #56d364; --fault: #ff6b6b; --ice: #9be9ff;
+    --a: #58a6ff; --b: #bc8cff; --c: #f0883e; --hello: #8b949e; --presign: #bc8cff;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+    font: 14px/1.45 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+  header { display: flex; align-items: center; gap: 16px; padding: 10px 18px; border-bottom: 1px solid var(--line); }
+  header h1 { font-size: 16px; margin: 0; font-weight: 600; letter-spacing: .2px; }
+  header .sub { color: var(--muted); font-size: 12px; }
+  .controls { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+  button { background: #21262d; color: var(--text); border: 1px solid var(--line); border-radius: 6px;
+    padding: 6px 11px; font: inherit; cursor: pointer; }
+  button:hover { border-color: #8b949e; }
+  button.primary { background: #238636; border-color: #2ea043; }
+  .speed { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; }
+  main { display: grid; grid-template-columns: minmax(0, 1fr) 400px; height: calc(100% - 53px); }
+  #stageWrap { display: flex; flex-direction: column; min-width: 0; }
+  #banner { padding: 12px 20px 6px; min-height: 64px; }
+  #banner .id { display: inline-block; font-weight: 700; color: #0d1117; background: var(--quorum);
+    border-radius: 4px; padding: 1px 8px; margin-right: 10px; font-size: 13px; }
+  #banner .title { font-size: 18px; font-weight: 600; }
+  #banner .note { color: var(--muted); margin-top: 4px; font-size: 13px; min-height: 19px; }
+  svg { flex: 1; width: 100%; min-height: 0; }
+  aside { border-left: 1px solid var(--line); display: grid; grid-template-rows: auto 1fr; min-height: 0; background: var(--panel); }
+  #steps { padding: 10px 12px; border-bottom: 1px solid var(--line); max-height: 40vh; overflow: auto; }
+  #steps h2, #logWrap h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin: 0 0 6px; }
+  .step { display: flex; gap: 8px; padding: 3px 6px; border-radius: 5px; cursor: pointer; font-size: 13px; color: var(--muted); }
+  .step:hover { background: #21262d; color: var(--text); }
+  .step.done { color: #c9d1d9; }
+  .step.cur { background: #1f6feb33; color: var(--text); }
+  .step b { min-width: 44px; color: var(--quorum); font-weight: 600; }
+  #logWrap { padding: 10px 12px; overflow: auto; min-height: 0; }
+  .log { font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; margin: 0 0 3px; white-space: pre-wrap; word-break: break-word; }
+  .log.note { color: #c9d1d9; font-family: inherit; font-size: 12.5px; }
+  .log.step { color: var(--quorum); font-weight: 600; margin-top: 10px; font-family: inherit; }
+  .log.msg { color: var(--muted); }
+  .log.msg .lbl { color: var(--text); }
+  .log.ok { color: #7ee787; } .log.warn { color: #e3b341; } .log.fault { color: var(--fault); }
+  .log.info { color: #8b949e; } .log.display { color: #d2a8ff; }
+  .legend { display: flex; flex-wrap: wrap; gap: 12px; padding: 4px 20px 10px; font-size: 11.5px; color: var(--muted); }
+  .legend span::before { content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; background: var(--c); }
+  .node-box { transition: opacity .35s, stroke .25s; }
+  .toast { font: 600 12px ui-sans-serif, system-ui; }
+  .zone-label { font: 600 11px ui-sans-serif, system-ui; letter-spacing: 1.5px; fill: #6e7681; }
+  #hint { color: var(--muted); font-size: 12px; padding: 0 20px 8px; }
+  kbd { background: #21262d; border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; font-size: 11px; }
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>COLD · HOT · PROD — a hot wallet with multiple points of failure</h1>
+    <div class="sub">Replay of a real protocol run from the Rust simulator (DKLs23 2-of-3, simulated TEE) · every arrow is a real signed frame</div>
+  </div>
+  <div class="controls">
+    <button id="restart" title="Restart (R)">⟲</button>
+    <button id="play" class="primary" title="Play / pause (Space)">▶ Play</button>
+    <button id="next" title="Next item (→)">Next ›</button>
+    <button id="nextStep" title="Next step (N)">Step »</button>
+    <div class="speed">speed <input id="speed" type="range" min="0.25" max="4" step="0.25" value="1"><span id="speedv">1×</span></div>
+  </div>
+</header>
+<main>
+  <section id="stageWrap">
+    <div id="banner"><span class="id" id="bid">CHP</span><span class="title" id="btitle">Press Play to start</span><div class="note" id="bnote">Each step names its sub-protocol from DESIGN.md (SP1–SP10).</div></div>
+    <svg id="stage" viewBox="0 0 1230 640" preserveAspectRatio="xMidYMid meet"></svg>
+    <div class="legend" id="legend"></div>
+    <div id="hint"><kbd>Space</kbd> play/pause · <kbd>→</kbd> next item · <kbd>N</kbd> next step · <kbd>R</kbd> restart · click a step to jump</div>
+  </section>
+  <aside>
+    <div id="steps"><h2>Steps</h2><div id="stepList"></div></div>
+    <div id="logWrap"><h2>Protocol log</h2><div id="log"></div></div>
+  </aside>
+</main>
+<script>
+"use strict";
+const NS = "http://www.w3.org/2000/svg";
+const svg = document.getElementById("stage");
+
+// ------------------------------------------------------------------ layout
+const NODES = {
+  QUORUM:    { x: 105,  y: 320, w: 160, h: 92, color: "var(--quorum)", title: "QUORUMS", sub: "M-of-N custodians\nceremony · policy" },
+  HOT:       { x: 335,  y: 150, w: 175, h: 96, color: "var(--hot)",    title: "HOT",     sub: "key share s_H\npowered off by default" },
+  COLD:      { x: 335,  y: 450, w: 175, h: 96, color: "var(--cold)",   title: "COLD",    sub: "key share s_C + halves\nthe only signer" },
+  REC:       { x: 555,  y: 555, w: 150, h: 76, color: "var(--rec)",    title: "REC",     sub: "backup HSM, share s_R\nceremonies only" },
+  MEDIA:     { x: 650,  y: 150, w: 136, h: 64, color: "var(--media)",  title: "💾 MEDIA", sub: "operator-carried" },
+  PROD:      { x: 880,  y: 320, w: 175, h: 96, color: "var(--prod)",   title: "PROD",    sub: "HOT's halves only\nNO key share" },
+  UPSTREAM:  { x: 1125, y: 150, w: 170, h: 70, color: "var(--api)",    title: "UPSTREAM", sub: "withdrawal service" },
+  REQUESTER: { x: 1125, y: 320, w: 170, h: 70, color: "var(--api)",    title: "REQUESTERS", sub: "deposit · audit" },
+  CHAIN:     { x: 1125, y: 490, w: 170, h: 70, color: "var(--chain)",  title: "⛓ CHAIN", sub: "EVM devnet" },
+};
+const CLS = {
+  "link-a":  ["var(--a)", "link stream A (jobs)"],
+  "link-b":  ["var(--b)", "link stream B (wake / presign)"],
+  "link-c":  ["var(--c)", "link stream C (control)"],
+  "hello":   ["var(--hello)", "LinkHello"],
+  "presign": ["var(--presign)", "MPC rounds"],
+  "quorum":  ["var(--quorum)", "quorum-signed object"],
+  "media":   ["var(--media)", "removable media"],
+  "api":     ["var(--api)", "PROD API (signed)"],
+  "chain":   ["var(--chain)", "broadcast"],
+  "fault":   ["var(--fault)", "fault / attack"],
+};
+const LEVEL = { ok: "#7ee787", warn: "#e3b341", fault: "#ff6b6b", info: "#8b949e", display: "#d2a8ff" };
+
+function el(tag, attrs = {}, parent = svg) {
+  const e = document.createElementNS(NS, tag);
+  for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
+  parent.appendChild(e);
+  return e;
+}
+
+function drawStatic() {
+  svg.innerHTML = "";
+  const defs = el("defs");
+  const glow = el("filter", { id: "glow", x: "-50%", y: "-50%", width: "200%", height: "200%" }, defs);
+  el("feGaussianBlur", { stdDeviation: "4", result: "b" }, glow);
+  const m = el("feMerge", {}, glow);
+  el("feMergeNode", { in: "b" }, m); el("feMergeNode", { in: "SourceGraphic" }, m);
+  // zones
+  el("rect", { x: 225, y: 70, width: 425 + 30, height: 560, rx: 14, fill: "#58a6ff08", stroke: "#58a6ff33", "stroke-dasharray": "6 6" });
+  el("text", { x: 240, y: 92, class: "zone-label" }).textContent = "OFFLINE · ISOLATED ZONE";
+  el("rect", { x: 770, y: 70, width: 222, height: 560, rx: 14, fill: "#d2a8ff08", stroke: "#d2a8ff33", "stroke-dasharray": "6 6" });
+  el("text", { x: 785, y: 92, class: "zone-label" }).textContent = "INTERNET-FACING";
+  // static channels
+  const ch = (a, b, dash, label) => {
+    const A = NODES[a], B = NODES[b];
+    el("line", { x1: A.x, y1: A.y, x2: B.x, y2: B.y, stroke: "#30363d", "stroke-width": 2, "stroke-dasharray": dash || "" });
+    if (label) {
+      const t = el("text", { x: (A.x + B.x) / 2 + 6, y: (A.y + B.y) / 2 - 6, fill: "#6e7681", "font-size": 10.5 });
+      t.textContent = label;
+    }
+  };
+  ch("COLD", "HOT", "", "link: COLD dials, in wake window");
+  ch("COLD", "PROD", "", "link: COLD dials");
+  ch("HOT", "MEDIA", "3 5", "");
+  ch("MEDIA", "PROD", "3 5", "one-way media");
+  ch("UPSTREAM", "PROD"); ch("REQUESTER", "PROD"); ch("PROD", "CHAIN");
+  ch("QUORUM", "HOT", "1 6"); ch("QUORUM", "COLD", "1 6"); ch("QUORUM", "PROD", "1 6"); ch("QUORUM", "REC", "1 6");
+  // nodes
+  for (const [id, n] of Object.entries(NODES)) {
+    const g = el("g", { id: "n-" + id, transform: `translate(${n.x - n.w / 2},${n.y - n.h / 2})` });
+    n.g = g;
+    n.box = el("rect", { class: "node-box", width: n.w, height: n.h, rx: 12, fill: "#161b22", stroke: n.color, "stroke-width": 2 }, g);
+    const t = el("text", { x: 12, y: 22, fill: n.color, "font-weight": 700, "font-size": 15 }, g);
+    t.textContent = n.title;
+    n.sub.split("\n").forEach((line, i) => {
+      const s = el("text", { x: 12, y: 40 + i * 15, fill: "#8b949e", "font-size": 11.5 }, g);
+      s.textContent = line;
+    });
+    n.badge = el("text", { x: n.w - 10, y: 22, fill: "#8b949e", "font-size": 11.5, "text-anchor": "end", "font-weight": 600 }, g);
+    n.stat = el("text", { x: 12, y: n.h - 9, fill: "#c9d1d9", "font-size": 11.5, "font-weight": 600 }, g);
+  }
+  // message layer on top
+  window.msgLayer = el("g", { id: "msgs" });
+  window.toastLayer = el("g", { id: "toasts" });
+}
+
+// ------------------------------------------------------------------ state rendering
+let STATE = {};
+function applyState(s) {
+  STATE = s || {};
+  const H = NODES.HOT, C = NODES.COLD, P = NODES.PROD;
+  H.g.style.opacity = s.hot_on ? 1 : 0.45;
+  H.badge.textContent = s.hot_on ? "⏻ ON" : "⏻ OFF";
+  H.badge.setAttribute("fill", s.hot_on ? "#7ee787" : "#8b949e");
+  H.stat.textContent = `wake counter ${s.hot_counter}` + (s.frozen_hot ? "   ❄ FROZEN" : "");
+  C.stat.textContent = `halves ${s.cold_pool}` + (s.frozen_cold ? "   ❄ FROZEN" : "");
+  P.stat.textContent = s.prod_revoked ? "✖ REVOKED" : `halves ${s.prod_pool}` + (s.frozen_prod ? "   ❄ FROZEN" : "");
+  P.badge.textContent = `#${s.prod_gen}`;
+  P.stat.setAttribute("fill", s.prod_revoked ? "#ff6b6b" : "#c9d1d9");
+  NODES.CHAIN.stat.textContent = `${s.broadcasts} tx broadcast`;
+  NODES.MEDIA.stat.textContent = s.media ? `${s.media} bundle(s) in hand` : "";
+  for (const [n, f] of [[H, s.frozen_hot], [C, s.frozen_cold], [P, s.frozen_prod]]) {
+    n.box.setAttribute("stroke", f ? "var(--ice)" : n.color);
+    n.box.setAttribute("stroke-width", f ? 4 : 2);
+    n.box.setAttribute("fill", f ? "#9be9ff14" : "#161b22");
+  }
+  P.box.setAttribute("stroke-dasharray", s.prod_revoked ? "6 4" : "");
+  P.g.style.opacity = s.prod_revoked ? 0.55 : 1;
+}
+
+// ------------------------------------------------------------------ playback
+let ITEMS = [], STEPS = [], idx = 0, playing = false, gen = 0;
+const speedEl = document.getElementById("speed");
+const speed = () => parseFloat(speedEl.value);
+const sleep = (ms, g) => new Promise((res, rej) => setTimeout(() => (g === gen ? res() : rej("cancel")), ms / speed()));
+
+const logEl = document.getElementById("log"), logWrap = document.getElementById("logWrap");
+function log(cls, html) {
+  const d = document.createElement("div");
+  d.className = "log " + cls;
+  d.innerHTML = html;
+  logEl.appendChild(d);
+  logWrap.scrollTop = logWrap.scrollHeight;
+}
+const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+
+function setBanner(id, title) {
+  document.getElementById("bid").textContent = id || "·";
+  document.getElementById("btitle").textContent = title;
+  document.getElementById("bnote").textContent = "";
+}
+
+function markStep(i) {
+  document.querySelectorAll(".step").forEach((e) => {
+    const si = +e.dataset.item;
+    e.classList.toggle("cur", si === i);
+    e.classList.toggle("done", si < i);
+  });
+  const cur = document.querySelector(".step.cur");
+  if (cur) cur.scrollIntoView({ block: "nearest" });
+}
+
+function flash(who, level) {
+  const n = NODES[who];
+  if (!n) return;
+  const r = el("rect", { x: n.x - n.w / 2 - 5, y: n.y - n.h / 2 - 5, width: n.w + 10, height: n.h + 10, rx: 15,
+    fill: "none", stroke: LEVEL[level] || "#8b949e", "stroke-width": 3, filter: "url(#glow)", opacity: 0.95 }, toastLayer);
+  r.animate([{ opacity: 0.95 }, { opacity: 0 }], { duration: 1400 / speed(), fill: "forwards" }).onfinish = () => r.remove();
+}
+
+function toast(who, text, level) {
+  const n = NODES[who];
+  if (!n) return;
+  const g = el("g", {}, toastLayer);
+  const t = el("text", { x: n.x, y: n.y - n.h / 2 - 14, "text-anchor": "middle", class: "toast", fill: LEVEL[level] || "#c9d1d9" }, g);
+  t.textContent = text.length > 70 ? text.slice(0, 68) + "…" : text;
+  const bb = t.getBBox();
+  const bg = el("rect", { x: bb.x - 7, y: bb.y - 3, width: bb.width + 14, height: bb.height + 6, rx: 6, fill: "#0d1117", stroke: LEVEL[level] || "#30363d" }, g);
+  g.insertBefore(bg, t);
+  g.animate([{ opacity: 0, transform: "translateY(6px)" }, { opacity: 1, transform: "translateY(0)", offset: 0.12 },
+    { opacity: 1, offset: 0.8 }, { opacity: 0 }], { duration: 2600 / speed(), fill: "forwards" }).onfinish = () => g.remove();
+}
+
+function animateMsg(m, g) {
+  const A = NODES[m.from], B = NODES[m.to];
+  if (!A || !B) return Promise.resolve();
+  const color = (CLS[m.cls] || ["#c9d1d9"])[0];
+  // offset parallel lanes so A→B and B→A don't overlap
+  const dx = B.x - A.x, dy = B.y - A.y, L = Math.hypot(dx, dy) || 1;
+  const ox = (-dy / L) * 9, oy = (dx / L) * 9;
+  const x1 = A.x + ox, y1 = A.y + oy, x2 = B.x + ox, y2 = B.y + oy;
+  const dur = Math.max(450, Math.min(1300, L * 1.6)) / speed();
+  const trail = el("line", { x1, y1, x2: x1, y2: y1, stroke: color, "stroke-width": 3, "stroke-linecap": "round", opacity: 0.9 }, msgLayer);
+  const pill = el("g", {}, msgLayer);
+  const dot = el("circle", { r: 7, fill: color, filter: "url(#glow)" }, pill);
+  const label = el("text", { y: -12, "text-anchor": "middle", fill: color, "font-size": 12.5, "font-weight": 700, stroke: "#0d1117", "stroke-width": 4, "paint-order": "stroke" }, pill);
+  label.textContent = m.label;
+  const bidir = m.cls === "presign" && m.label.startsWith("PresignMsg");
+  return new Promise((res) => {
+    const t0 = performance.now();
+    const frame = (now) => {
+      if (g !== gen) { trail.remove(); pill.remove(); return res(); }
+      let p = Math.min(1, (now - t0) / dur);
+      if (bidir) {
+        // ping-pong a few times for many MPC rounds
+        const k = (p * 3) % 1, fwd = Math.floor(p * 3) % 2 === 0;
+        const q = fwd ? k : 1 - k;
+        pill.setAttribute("transform", `translate(${x1 + (x2 - x1) * q},${y1 + (y2 - y1) * q})`);
+        trail.setAttribute("x2", x2); trail.setAttribute("y2", y2);
+      } else {
+        const e = p < 0.5 ? 2 * p * p : 1 - Math.pow(-2 * p + 2, 2) / 2;
+        pill.setAttribute("transform", `translate(${x1 + (x2 - x1) * e},${y1 + (y2 - y1) * e})`);
+        trail.setAttribute("x2", x1 + (x2 - x1) * e); trail.setAttribute("y2", y1 + (y2 - y1) * e);
+      }
+      if (p < 1) requestAnimationFrame(frame);
+      else {
+        pill.remove();
+        trail.animate([{ opacity: 0.9 }, { opacity: 0 }], { duration: 900 / speed(), fill: "forwards" }).onfinish = () => trail.remove();
+        res();
+      }
+    };
+    requestAnimationFrame(frame);
+  });
+}
+
+function logMsg(m) {
+  const color = (CLS[m.cls] || ["#c9d1d9"])[0];
+  log("msg", `${esc(m.from)} → ${esc(m.to)}  <span class="lbl" style="color:${color}">${esc(m.label)}</span>${m.detail ? "  · " + esc(m.detail) : ""}`);
+}
+
+// Apply one item. `instant`: no animation (used when jumping).
+async function apply(it, g, instant) {
+  switch (it.kind) {
+    case "step":
+      setBanner(it.id, it.title);
+      log("step", `${esc(it.id)} · ${esc(it.title)}`);
+      markStep(ITEMS.indexOf(it));
+      if (!instant) await sleep(900, g);
+      break;
+    case "note":
+      document.getElementById("bnote").textContent = it.text;
+      log("note", "▸ " + esc(it.text));
+      if (!instant) await sleep(Math.min(2200, 500 + it.text.length * 16), g);
+      break;
+    case "msg":
+      logMsg(it);
+      if (!instant) await animateMsg(it, g);
+      break;
+    case "event":
+      log(it.level, `${esc(it.who)}: ${esc(it.text)}`);
+      if (!instant) { flash(it.who, it.level); toast(it.who, it.text, it.level); await sleep(it.level === "info" ? 350 : 800, g); }
+      break;
+    case "state":
+      applyState(it);
+      break;
+  }
+}
+
+async function run() {
+  const g = gen;
+  try {
+    while (playing && idx < ITEMS.length && g === gen) {
+      await apply(ITEMS[idx], g, false);
+      if (g !== gen) return;
+      idx++;
+    }
+  } catch (e) { return; }
+  if (idx >= ITEMS.length) { playing = false; updatePlay(); setBanner("DONE", "End of the run — press ⟲ to replay"); }
+}
+
+function updatePlay() {
+  const b = document.getElementById("play");
+  b.textContent = playing ? "⏸ Pause" : "▶ Play";
+}
+
+function reset() {
+  gen++;
+  idx = 0;
+  logEl.innerHTML = "";
+  msgLayer.innerHTML = ""; toastLayer.innerHTML = "";
+  applyState(ITEMS.find((i) => i.kind === "state") || {});
+  setBanner("CHP", "Press Play to start");
+  markStep(-1);
+}
+
+function jumpTo(target) {
+  gen++;
+  const g = gen;
+  logEl.innerHTML = ""; msgLayer.innerHTML = ""; toastLayer.innerHTML = "";
+  idx = 0;
+  while (idx < target) { apply(ITEMS[idx], g, true); idx++; }
+  if (playing) run();
+}
+
+function togglePlay() {
+  playing = !playing;
+  updatePlay();
+  if (playing) { gen++; run(); }
+  else gen++;
+}
+
+async function nextItem() {
+  if (idx >= ITEMS.length) return;
+  playing = false; updatePlay();
+  gen++;
+  const g = gen;
+  try { await apply(ITEMS[idx], g, false); } catch (e) { return; }
+  if (g === gen) idx++;
+}
+
+function nextStep() {
+  let j = idx + 1;
+  while (j < ITEMS.length && ITEMS[j].kind !== "step") j++;
+  jumpTo(Math.min(j, ITEMS.length));
+}
+
+// ------------------------------------------------------------------ boot
+async function main() {
+  drawStatic();
+  document.getElementById("legend").innerHTML = Object.values(CLS)
+    .map(([c, t]) => `<span style="--c:${c}">${t}</span>`).join("");
+  const res = await fetch("trace.json", { cache: "no-store" });
+  ITEMS = await res.json();
+  STEPS = ITEMS.map((it, i) => ({ it, i })).filter((x) => x.it.kind === "step");
+  document.getElementById("stepList").innerHTML = STEPS
+    .map(({ it, i }) => `<div class="step" data-item="${i}"><b>${esc(it.id)}</b><span>${esc(it.title)}</span></div>`).join("");
+  document.querySelectorAll(".step").forEach((e) => e.addEventListener("click", () => jumpTo(+e.dataset.item)));
+  reset();
+  document.getElementById("play").onclick = togglePlay;
+  document.getElementById("restart").onclick = () => { reset(); if (playing) run(); };
+  document.getElementById("next").onclick = nextItem;
+  document.getElementById("nextStep").onclick = nextStep;
+  speedEl.oninput = () => (document.getElementById("speedv").textContent = speed() + "×");
+  document.addEventListener("keydown", (e) => {
+    if (e.code === "Space") { e.preventDefault(); togglePlay(); }
+    else if (e.key === "ArrowRight") nextItem();
+    else if (e.key === "n" || e.key === "N") nextStep();
+    else if (e.key === "r" || e.key === "R") { reset(); }
+  });
+}
+main();
+</script>
+</body>
+</html>

@@ -1,0 +1,1864 @@
+[
+  {
+    "kind": "step",
+    "id": "SP1",
+    "title": "Enrollment: every party gets a quorum-signed identity"
+  },
+  {
+    "kind": "note",
+    "text": "HOT, COLD, PROD each generate id_key (Ed25519) + wrap_key (X25519) inside their enclave"
+  },
+  {
+    "kind": "note",
+    "text": "each sends an attestation binding H(role ‖ replica ‖ id_pk ‖ wrap_pk) to the ceremony quorum"
+  },
+  {
+    "kind": "note",
+    "text": "quorum (3-of-5 custodians) checks vendor signature + measurement on the release list → signs PartyCert"
+  },
+  {
+    "kind": "msg",
+    "from": "HOT",
+    "to": "QUORUM",
+    "label": "attestation",
+    "detail": "measurement + H(role‖replica‖id_pk‖wrap_pk)",
+    "cls": "quorum"
+  },
+  {
+    "kind": "msg",
+    "from": "COLD",
+    "to": "QUORUM",
+    "label": "attestation",
+    "detail": "measurement + H(role‖replica‖id_pk‖wrap_pk)",
+    "cls": "quorum"
+  },
+  {
+    "kind": "msg",
+    "from": "PROD",
+    "to": "QUORUM",
+    "label": "attestation",
+    "detail": "measurement + H(role‖replica‖id_pk‖wrap_pk)",
+    "cls": "quorum"
+  },
+  {
+    "kind": "msg",
+    "from": "QUORUM",
+    "to": "HOT",
+    "label": "PartyCert",
+    "detail": "quorum-signed identity",
+    "cls": "quorum"
+  },
+  {
+    "kind": "msg",
+    "from": "QUORUM",
+    "to": "COLD",
+    "label": "PartyCert",
+    "detail": "quorum-signed identity",
+    "cls": "quorum"
+  },
+  {
+    "kind": "msg",
+    "from": "QUORUM",
+    "to": "PROD",
+    "label": "PartyCert",
+    "detail": "quorum-signed identity",
+    "cls": "quorum"
+  },
+  {
+    "kind": "msg",
+    "from": "QUORUM",
+    "to": "UPSTREAM",
+    "label": "PartyCert",
+    "detail": "client: withdrawal service",
+    "cls": "quorum"
+  },
+  {
+    "kind": "msg",
+    "from": "QUORUM",
+    "to": "REQUESTER",
+    "label": "PartyCert",
+    "detail": "client: deposit service",
+    "cls": "quorum"
+  },
+  {
+    "kind": "note",
+    "text": "UPSTREAM (withdrawal service) and a deposit-service requester enrolled as clients"
+  },
+  {
+    "kind": "step",
+    "id": "SP2",
+    "title": "Key ceremony (DKG) on the isolated ceremony network"
+  },
+  {
+    "kind": "note",
+    "text": "quorum signs CeremonyOpen{kind Dkg, boot_seq: HOT=1, COLD=1, REC=1}"
+  },
+  {
+    "kind": "msg",
+    "from": "QUORUM",
+    "to": "HOT",
+    "label": "CeremonyOpen",
+    "detail": "kind Dkg, boot_seq",
+    "cls": "quorum"
+  },
+  {
+    "kind": "msg",
+    "from": "QUORUM",
+    "to": "COLD",
+    "label": "CeremonyOpen",
+    "detail": "kind Dkg, boot_seq",
+    "cls": "quorum"
+  },
+  {
+    "kind": "msg",
+    "from": "QUORUM",
+    "to": "REC",
+    "label": "CeremonyOpen",
+    "detail": "kind Dkg, boot_seq",
+    "cls": "quorum"
+  },
+  {
+    "kind": "msg",
+    "from": "HOT",
+    "to": "COLD",
+    "label": "DKG rounds",
+    "detail": "ceremony network",
+    "cls": "presign"
+  },
+  {
+    "kind": "msg",
+    "from": "COLD",
+    "to": "REC",
+    "label": "DKG rounds",
+    "detail": "ceremony network",
+    "cls": "presign"
+  },
+  {
+    "kind": "msg",
+    "from": "REC",
+    "to": "HOT",
+    "label": "DKG rounds",
+    "detail": "ceremony network",
+    "cls": "presign"
+  },
+  {
+    "kind": "msg",
+    "from": "HOT",
+    "to": "QUORUM",
+    "label": "Y fingerprint",
+    "detail": "03a6918fe435414845",
+    "cls": "quorum"
+  },
+  {
+    "kind": "msg",
+    "from": "COLD",
+    "to": "QUORUM",
+    "label": "Y fingerprint",
+    "detail": "03a6918fe435414845",
+    "cls": "quorum"
+  },
+  {
+    "kind": "msg",
+    "from": "REC",
+    "to": "QUORUM",
+    "label": "Y fingerprint",
+    "detail": "03a6918fe435414845",
+    "cls": "quorum"
+  },
+  {
+    "kind": "note",
+    "text": "DKLs23 2-of-3 DKG among HOT, COLD, REC — no dealer, the full key never exists"
+  },
+  {
+    "kind": "note",
+    "text": "Y fingerprints read aloud: HOT 03a6918fe435414845  COLD 03a6918fe435414845  REC 03a6918fe435414845  → equal"
+  },
+  {
+    "kind": "note",
+    "text": "test signatures with every pair {H,C} {H,R} {C,R} verified against Y"
+  },
+  {
+    "kind": "note",
+    "text": "quorum signs KeyManifest{key_id 95b370dd, version 1, Y, public shares}"
+  },
+  {
+    "kind": "note",
+    "text": "each address path signs its own control statement → quorum signs AddressBook v1 (2 entries)"
+  },
+  {
+    "kind": "step",
+    "id": "SP3",
+    "title": "Share delivery: sealed packages → HOT, COLD (REC keeps its share in its HSM)"
+  },
+  {
+    "kind": "note",
+    "text": "HOT, COLD: ceremony boot (boot_seq = counter + 1) → HPKE-open own package → check s_i·G == Y_i"
+  },
+  {
+    "kind": "msg",
+    "from": "QUORUM",
+    "to": "HOT",
+    "label": "SharePackage",
+    "detail": "HPKE(s_HOT → HOT.wrap_pk)",
+    "cls": "quorum"
+  },
+  {
+    "kind": "msg",
+    "from": "QUORUM",
+    "to": "COLD",
+    "label": "SharePackage",
+    "detail": "HPKE(s_COLD → COLD.wrap_pk)",
+    "cls": "quorum"
+  },
+  {
+    "kind": "msg",
+    "from": "HOT",
+    "to": "QUORUM",
+    "label": "ShareReceipt",
+    "detail": "s_i·G == Y_i ✔",
+    "cls": "quorum"
+  },
+  {
+    "kind": "msg",
+    "from": "COLD",
+    "to": "QUORUM",
+    "label": "ShareReceipt",
+    "detail": "s_i·G == Y_i ✔",
+    "cls": "quorum"
+  },
+  {
+    "kind": "note",
+    "text": "HOT, COLD → quorum: signed ShareReceipt (public share, measurement, manifest hash) ✔"
+  },
+  {
+    "kind": "note",
+    "text": "quorum signs Activate(key v1): key ACTIVE_PENDING → ACTIVE on HOT, COLD, PROD"
+  },
+  {
+    "kind": "msg",
+    "from": "QUORUM",
+    "to": "HOT",
+    "label": "Activate",
+    "detail": "key v1 → ACTIVE",
+    "cls": "quorum"
+  },
+  {
+    "kind": "msg",
+    "from": "QUORUM",
+    "to": "COLD",
+    "label": "Activate",
+    "detail": "key v1 → ACTIVE",
+    "cls": "quorum"
+  },
+  {
+    "kind": "msg",
+    "from": "QUORUM",
+    "to": "PROD",
+    "label": "Activate",
+    "detail": "key v1 → ACTIVE",
+    "cls": "quorum"
+  },
+  {
+    "kind": "msg",
+    "from": "QUORUM",
+    "to": "PROD",
+    "label": "KeyManifest + AddressBook",
+    "detail": "public data only",
+    "cls": "quorum"
+  },
+  {
+    "kind": "msg",
+    "from": "QUORUM",
+    "to": "UPSTREAM",
+    "label": "KeyManifest + AddressBook",
+    "detail": "to verify address proofs",
+    "cls": "quorum"
+  },
+  {
+    "kind": "note",
+    "text": "PROD receives public data only: manifest, AddressBook, Activate (it refuses any share)"
+  },
+  {
+    "kind": "step",
+    "id": "SP7",
+    "title": "Policy: two independent sources, two policy quorums"
+  },
+  {
+    "kind": "note",
+    "text": "PolicyBundle{target PROD} signed by PROD's policy quorum: max/tx 10 ETH, allowlist [0x1111111111111111111111111111111111111111]"
+  },
+  {
+    "kind": "note",
+    "text": "PolicyBundle{target COLD} signed by COLD's policy quorum: max/tx 10000000000000000000 wei"
+  },
+  {
+    "kind": "msg",
+    "from": "QUORUM",
+    "to": "PROD",
+    "label": "PolicyBundle",
+    "detail": "target PROD · PROD's policy quorum",
+    "cls": "quorum"
+  },
+  {
+    "kind": "msg",
+    "from": "QUORUM",
+    "to": "COLD",
+    "label": "PolicyBundle",
+    "detail": "target COLD · COLD's policy quorum",
+    "cls": "quorum"
+  },
+  {
+    "kind": "step",
+    "id": "SP1",
+    "title": "Link: COLD dials PROD (nobody dials COLD)"
+  },
+  {
+    "kind": "msg",
+    "from": "COLD",
+    "to": "PROD",
+    "label": "LinkHello",
+    "detail": "cert · nonce · tls_binding",
+    "cls": "hello"
+  },
+  {
+    "kind": "msg",
+    "from": "PROD",
+    "to": "COLD",
+    "label": "LinkHello",
+    "detail": "peer_nonce echoed",
+    "cls": "hello"
+  },
+  {
+    "kind": "note",
+    "text": "hot address for m/hot/0: 0x248f95ba8e11dcfa380a06ff3af80fc8f5205c23"
+  },
+  {
+    "kind": "step",
+    "id": "SP4",
+    "title": "HOT wake window: presign batches with COLD"
+  },
+  {
+    "kind": "note",
+    "text": "operators at COLD and at HOT agree to wake HOT (pool is empty)"
+  },
+  {
+    "kind": "state",
+    "hot_on": true,
+    "hot_counter": 1,
+    "frozen_hot": false,
+    "frozen_cold": false,
+    "frozen_prod": false,
+    "prod_pool": 0,
+    "cold_pool": 0,
+    "broadcasts": 0,
+    "prod_revoked": false,
+    "prod_gen": 1,
+    "media": 0
+  },
+  {
+    "kind": "note",
+    "text": "HOT powers on LOCKED and shows its hardware wake counter = 1"
+  },
+  {
+    "kind": "event",
+    "who": "HOT",
+    "text": "HOT wake counter = 1",
+    "level": "display"
+  },
+  {
+    "kind": "state",
+    "hot_on": true,
+    "hot_counter": 1,
+    "frozen_hot": false,
+    "frozen_cold": false,
+    "frozen_prod": false,
+    "prod_pool": 0,
+    "cold_pool": 0,
+    "broadcasts": 0,
+    "prod_revoked": false,
+    "prod_gen": 1,
+    "media": 0
+  },
+  {
+    "kind": "msg",
+    "from": "COLD",
+    "to": "HOT",
+    "label": "LinkHello",
+    "detail": "HOT booted locked: accepts only COLD",
+    "cls": "hello"
+  },
+  {
+    "kind": "msg",
+    "from": "HOT",
+    "to": "COLD",
+    "label": "LinkHello",
+    "detail": "link installed",
+    "cls": "hello"
+  },
+  {
+    "kind": "note",
+    "text": "COLD → HOT WakeOpen{PresignSync, max_batches 2, wake_seq 2}"
+  },
+  {
+    "kind": "event",
+    "who": "COLD",
+    "text": "COLD wake digest b3b033006f67dc86",
+    "level": "display"
+  },
+  {
+    "kind": "msg",
+    "from": "COLD",
+    "to": "HOT",
+    "label": "WakeOpen",
+    "detail": "stream B, seq 1",
+    "cls": "link-b"
+  },
+  {
+    "kind": "event",
+    "who": "HOT",
+    "text": "HOT wake digest b3b033006f67dc86",
+    "level": "display"
+  },
+  {
+    "kind": "state",
+    "hot_on": true,
+    "hot_counter": 2,
+    "frozen_hot": false,
+    "frozen_cold": false,
+    "frozen_prod": false,
+    "prod_pool": 0,
+    "cold_pool": 0,
+    "broadcasts": 0,
+    "prod_revoked": false,
+    "prod_gen": 1,
+    "media": 0
+  },
+  {
+    "kind": "note",
+    "text": "HOT checks: mode allows PresignSync ✔ key active ✔ caps ✔ wake_seq == counter+1 ✔ → counter advanced"
+  },
+  {
+    "kind": "note",
+    "text": "operator at HOT compares the digest on HOT's screen with COLD's screen → match"
+  },
+  {
+    "kind": "msg",
+    "from": "HOT",
+    "to": "COLD",
+    "label": "WakeAccept",
+    "detail": "stream B, seq 1",
+    "cls": "link-b"
+  },
+  {
+    "kind": "state",
+    "hot_on": true,
+    "hot_counter": 2,
+    "frozen_hot": false,
+    "frozen_cold": false,
+    "frozen_prod": false,
+    "prod_pool": 0,
+    "cold_pool": 0,
+    "broadcasts": 0,
+    "prod_revoked": false,
+    "prod_gen": 1,
+    "media": 0
+  },
+  {
+    "kind": "note",
+    "text": "operator at COLD confirms → window OPEN; COLD relays pending quorum files (RosterUpdate first)"
+  },
+  {
+    "kind": "state",
+    "hot_on": true,
+    "hot_counter": 2,
+    "frozen_hot": false,
+    "frozen_cold": false,
+    "frozen_prod": false,
+    "prod_pool": 0,
+    "cold_pool": 0,
+    "broadcasts": 0,
+    "prod_revoked": false,
+    "prod_gen": 1,
+    "media": 0
+  },
+  {
+    "kind": "note",
+    "text": "SP4 batch 1: COLD allocates ids above the pool's high-water mark in a fresh counter block"
+  },
+  {
+    "kind": "msg",
+    "from": "COLD",
+    "to": "HOT",
+    "label": "PresignOpen",
+    "detail": "stream B, seq 2",
+    "cls": "link-b"
+  },
+  {
+    "kind": "msg",
+    "from": "HOT",
+    "to": "COLD",
+    "label": "PresignAccept",
+    "detail": "stream B, seq 2",
+    "cls": "link-b"
+  },
+  {
+    "kind": "msg",
+    "from": "HOT",
+    "to": "MEDIA",
+    "label": "MediaBundle",
+    "detail": "2408 bytes, sealed to PROD",
+    "cls": "media"
+  },
+  {
+    "kind": "msg",
+    "from": "COLD",
+    "to": "HOT",
+    "label": "PresignMsg ×24",
+    "detail": "DKLs23 R1–R3 both ways, each frame signed + seq-checked",
+    "cls": "presign"
+  },
+  {
+    "kind": "msg",
+    "from": "HOT",
+    "to": "COLD",
+    "label": "PresignStored",
+    "detail": "stream B, seq 15",
+    "cls": "link-b"
+  },
+  {
+    "kind": "state",
+    "hot_on": true,
+    "hot_counter": 2,
+    "frozen_hot": false,
+    "frozen_cold": false,
+    "frozen_prod": false,
+    "prod_pool": 0,
+    "cold_pool": 0,
+    "broadcasts": 0,
+    "prod_revoked": false,
+    "prod_gen": 1,
+    "media": 1
+  },
+  {
+    "kind": "note",
+    "text": "SP4 batch 2: COLD allocates ids above the pool's high-water mark in a fresh counter block"
+  },
+  {
+    "kind": "msg",
+    "from": "COLD",
+    "to": "HOT",
+    "label": "PresignOpen",
+    "detail": "stream B, seq 15",
+    "cls": "link-b"
+  },
+  {
+    "kind": "msg",
+    "from": "HOT",
+    "to": "COLD",
+    "label": "PresignAccept",
+    "detail": "stream B, seq 16",
+    "cls": "link-b"
+  },
+  {
+    "kind": "msg",
+    "from": "HOT",
+    "to": "MEDIA",
+    "label": "MediaBundle",
+    "detail": "2402 bytes, sealed to PROD",
+    "cls": "media"
+  },
+  {
+    "kind": "msg",
+    "from": "COLD",
+    "to": "HOT",
+    "label": "PresignMsg ×24",
+    "detail": "DKLs23 R1–R3 both ways, each frame signed + seq-checked",
+    "cls": "presign"
+  },
+  {
+    "kind": "msg",
+    "from": "HOT",
+    "to": "COLD",
+    "label": "PresignStored",
+    "detail": "stream B, seq 29",
+    "cls": "link-b"
+  },
+  {
+    "kind": "state",
+    "hot_on": true,
+    "hot_counter": 2,
+    "frozen_hot": false,
+    "frozen_cold": false,
+    "frozen_prod": false,
+    "prod_pool": 0,
+    "cold_pool": 0,
+    "broadcasts": 0,
+    "prod_revoked": false,
+    "prod_gen": 1,
+    "media": 2
+  },
+  {
+    "kind": "msg",
+    "from": "COLD",
+    "to": "HOT",
+    "label": "WakeClose",
+    "detail": "stream B, seq 28",
+    "cls": "link-b"
+  },
+  {
+    "kind": "state",
+    "hot_on": true,
+    "hot_counter": 2,
+    "frozen_hot": false,
+    "frozen_cold": false,
+    "frozen_prod": false,
+    "prod_pool": 0,
+    "cold_pool": 0,
+    "broadcasts": 0,
+    "prod_revoked": false,
+    "prod_gen": 1,
+    "media": 2
+  },
+  {
+    "kind": "state",
+    "hot_on": false,
+    "hot_counter": 2,
+    "frozen_hot": false,
+    "frozen_cold": false,
+    "frozen_prod": false,
+    "prod_pool": 0,
+    "cold_pool": 0,
+    "broadcasts": 0,
+    "prod_revoked": false,
+    "prod_gen": 1,
+    "media": 2
+  },
+  {
+    "kind": "note",
+    "text": "window closed: HOT erased all session state and POWERED OFF (it holds no halves)"
+  },
+  {
+    "kind": "step",
+    "id": "SP5",
+    "title": "Media transfer HOT → 💾 → PROD, then activation"
+  },
+  {
+    "kind": "note",
+    "text": "an operator (not PROD's custodian) carries 2 bundle(s) on removable media to PROD"
+  },
+  {
+    "kind": "msg",
+    "from": "MEDIA",
+    "to": "PROD",
+    "label": "MediaBundle",
+    "detail": "carried by hand, imported",
+    "cls": "media"
+  },
+  {
+    "kind": "note",
+    "text": "PROD imports: HOT cert ✔ signature ✔ seq 0 ✔ HPKE open ✔ recompute digest ✔ ids above high-water ✔ → Pending"
+  },
+  {
+    "kind": "msg",
+    "from": "PROD",
+    "to": "COLD",
+    "label": "TransferAck",
+    "detail": "stream C, seq 1",
+    "cls": "link-c"
+  },
+  {
+    "kind": "event",
+    "who": "COLD",
+    "text": "batch 50a9760e → Active",
+    "level": "info"
+  },
+  {
+    "kind": "msg",
+    "from": "COLD",
+    "to": "PROD",
+    "label": "PresignActivate",
+    "detail": "stream C, seq 1",
+    "cls": "link-c"
+  },
+  {
+    "kind": "event",
+    "who": "PROD",
+    "text": "batch 50a9760e → Active",
+    "level": "info"
+  },
+  {
+    "kind": "state",
+    "hot_on": false,
+    "hot_counter": 2,
+    "frozen_hot": false,
+    "frozen_cold": false,
+    "frozen_prod": false,
+    "prod_pool": 4,
+    "cold_pool": 4,
+    "broadcasts": 0,
+    "prod_revoked": false,
+    "prod_gen": 1,
+    "media": 0
+  },
+  {
+    "kind": "msg",
+    "from": "MEDIA",
+    "to": "PROD",
+    "label": "MediaBundle",
+    "detail": "carried by hand, imported",
+    "cls": "media"
+  },
+  {
+    "kind": "note",
+    "text": "PROD imports: HOT cert ✔ signature ✔ seq 0 ✔ HPKE open ✔ recompute digest ✔ ids above high-water ✔ → Pending"
+  },
+  {
+    "kind": "msg",
+    "from": "PROD",
+    "to": "COLD",
+    "label": "TransferAck",
+    "detail": "stream C, seq 2",
+    "cls": "link-c"
+  },
+  {
+    "kind": "event",
+    "who": "COLD",
+    "text": "batch 9e7cc735 → Active",
+    "level": "info"
+  },
+  {
+    "kind": "msg",
+    "from": "COLD",
+    "to": "PROD",
+    "label": "PresignActivate",
+    "detail": "stream C, seq 2",
+    "cls": "link-c"
+  },
+  {
+    "kind": "event",
+    "who": "PROD",
+    "text": "batch 9e7cc735 → Active",
+    "level": "info"
+  },
+  {
+    "kind": "state",
+    "hot_on": false,
+    "hot_counter": 2,
+    "frozen_hot": false,
+    "frozen_cold": false,
+    "frozen_prod": false,
+    "prod_pool": 8,
+    "cold_pool": 8,
+    "broadcasts": 0,
+    "prod_revoked": false,
+    "prod_gen": 1,
+    "media": 0
+  },
+  {
+    "kind": "note",
+    "text": "COLD activates each batch only because own digest == HOT's export digest == PROD's import digest"
+  },
+  {
+    "kind": "note",
+    "text": "pool m/hot/0: PROD holds 8 active halves, COLD holds its matching 8"
+  },
+  {
+    "kind": "step",
+    "id": "SP6",
+    "title": "Online signing: one message PROD → COLD"
+  },
+  {
+    "kind": "note",
+    "text": "UPSTREAM signs WithdrawalEnvelope{request 5825a579, 1 ETH to the allowlisted address, path m/hot/0, not_after +120s}"
+  },
+  {
+    "kind": "note",
+    "text": "PROD admission (no state change on refusal): UPSTREAM sig ✔ fresh ✔ not replayed ✔ key active ✔ own decode ✔ own policy ✔ halves available ✔"
+  },
+  {
+    "kind": "msg",
+    "from": "UPSTREAM",
+    "to": "PROD",
+    "label": "WithdrawalEnvelope",
+    "detail": "1 ETH to the allowlisted address",
+    "cls": "api"
+  },
+  {
+    "kind": "note",
+    "text": "PROD takes the next half (deleted BEFORE computing), computes ssid + 96-byte fragment, HPKE-seals it to COLD"
+  },
+  {
+    "kind": "msg",
+    "from": "PROD",
+    "to": "COLD",
+    "label": "Job",
+    "detail": "stream A, seq 1",
+    "cls": "link-a"
+  },
+  {
+    "kind": "event",
+    "who": "COLD",
+    "text": "signed request 5825a579 → txid 8c56ccad",
+    "level": "ok"
+  },
+  {
+    "kind": "msg",
+    "from": "COLD",
+    "to": "PROD",
+    "label": "Status",
+    "detail": "stream A, seq 1",
+    "cls": "link-a"
+  },
+  {
+    "kind": "msg",
+    "from": "PROD",
+    "to": "CHAIN",
+    "label": "broadcast",
+    "detail": "txid 8c56ccad",
+    "cls": "chain"
+  },
+  {
+    "kind": "state",
+    "hot_on": false,
+    "hot_counter": 2,
+    "frozen_hot": false,
+    "frozen_cold": false,
+    "frozen_prod": false,
+    "prod_pool": 7,
+    "cold_pool": 7,
+    "broadcasts": 1,
+    "prod_revoked": false,
+    "prod_gen": 1,
+    "media": 0
+  },
+  {
+    "kind": "note",
+    "text": "COLD: burn first (high-water mark + hardware counter), then re-checks EVERYTHING itself:"
+  },
+  {
+    "kind": "note",
+    "text": "      UPSTREAM sig ✔ two signed times agree ✔ not expired ✔ own decode ✔ ssid recomputed ✔ path in book ✔ COLD policy ✔"
+  },
+  {
+    "kind": "note",
+    "text": "      combine fragment + own half → ECDSA signature → verified with libsecp256k1 (independent of the MPC library)"
+  },
+  {
+    "kind": "note",
+    "text": "Status = Signed"
+  },
+  {
+    "kind": "note",
+    "text": "signature recovers to 0x248f95ba8e11dcfa380a06ff3af80fc8f5205c23 == quorum-signed book address ✔ true"
+  },
+  {
+    "kind": "step",
+    "id": "SP10",
+    "title": "Address proof for a depositor, verified offline"
+  },
+  {
+    "kind": "note",
+    "text": "requester → PROD AddressQuery{path, nonce} (signed by the enrolled requester)"
+  },
+  {
+    "kind": "msg",
+    "from": "REQUESTER",
+    "to": "PROD",
+    "label": "AddressQuery",
+    "detail": "path m/hot/0",
+    "cls": "api"
+  },
+  {
+    "kind": "msg",
+    "from": "PROD",
+    "to": "REQUESTER",
+    "label": "AddressProof",
+    "detail": "book + manifest + PROD sig",
+    "cls": "api"
+  },
+  {
+    "kind": "note",
+    "text": "PROD → requester AddressProof{entry, AddressBook, KeyManifest, PROD cert} signed by PROD"
+  },
+  {
+    "kind": "note",
+    "text": "requester verifies with the pinned roster only: quorum sigs ✔ address re-derived ✔ control sig by the key ✔ active ✔ → 0x248f95ba8e11dcfa380a06ff3af80fc8f5205c23"
+  },
+  {
+    "kind": "step",
+    "id": "SP7",
+    "title": "Attack: a compromised PROD tries to redirect funds → freeze"
+  },
+  {
+    "kind": "note",
+    "text": "UPSTREAM asked for 1 ETH → 0x1111111111111111111111111111111111111111; hacked PROD computes its fragment for 9 ETH → 0x6666666666666666666666666666666666666666"
+  },
+  {
+    "kind": "msg",
+    "from": "UPSTREAM",
+    "to": "PROD",
+    "label": "WithdrawalEnvelope",
+    "detail": "1 ETH → allowlisted",
+    "cls": "api"
+  },
+  {
+    "kind": "event",
+    "who": "PROD",
+    "text": "COMPROMISED: fragment computed for 9 ETH → attacker",
+    "level": "fault"
+  },
+  {
+    "kind": "msg",
+    "from": "PROD",
+    "to": "COLD",
+    "label": "Job",
+    "detail": "stream A, seq 2",
+    "cls": "link-a"
+  },
+  {
+    "kind": "event",
+    "who": "COLD",
+    "text": "FROZE the key (FinalVerify)",
+    "level": "fault"
+  },
+  {
+    "kind": "msg",
+    "from": "COLD",
+    "to": "PROD",
+    "label": "FreezeNotice",
+    "detail": "stream C, seq 3",
+    "cls": "fault"
+  },
+  {
+    "kind": "msg",
+    "from": "COLD",
+    "to": "PROD",
+    "label": "Status",
+    "detail": "stream A, seq 2",
+    "cls": "link-a"
+  },
+  {
+    "kind": "event",
+    "who": "PROD",
+    "text": "FROZE the key (FinalVerify)",
+    "level": "fault"
+  },
+  {
+    "kind": "event",
+    "who": "PROD",
+    "text": "job 2 → Fault(FinalVerify): final signature does not verify",
+    "level": "info"
+  },
+  {
+    "kind": "state",
+    "hot_on": false,
+    "hot_counter": 2,
+    "frozen_hot": false,
+    "frozen_cold": true,
+    "frozen_prod": true,
+    "prod_pool": 6,
+    "cold_pool": 6,
+    "broadcasts": 1,
+    "prod_revoked": false,
+    "prod_gen": 1,
+    "media": 0
+  },
+  {
+    "kind": "note",
+    "text": "COLD decodes UPSTREAM's tx itself; the combined signature fails verification → Fault(FinalVerify)"
+  },
+  {
+    "kind": "note",
+    "text": "broadcasts so far: 1 (nothing invalid is ever broadcast)"
+  },
+  {
+    "kind": "msg",
+    "from": "UPSTREAM",
+    "to": "PROD",
+    "label": "WithdrawalEnvelope",
+    "detail": "new request while frozen",
+    "cls": "api"
+  },
+  {
+    "kind": "state",
+    "hot_on": false,
+    "hot_counter": 2,
+    "frozen_hot": false,
+    "frozen_cold": true,
+    "frozen_prod": true,
+    "prod_pool": 6,
+    "cold_pool": 6,
+    "broadcasts": 1,
+    "prod_revoked": false,
+    "prod_gen": 1,
+    "media": 0
+  },
+  {
+    "kind": "event",
+    "who": "PROD",
+    "text": "refused at admission: key frozen",
+    "level": "warn"
+  },
+  {
+    "kind": "note",
+    "text": "while frozen, PROD refuses new requests: refused at admission: key not active or frozen"
+  },
+  {
+    "kind": "note",
+    "text": "investigation done → custodians sign Unfreeze{version 1} (M-of-N); each party verifies it itself"
+  },
+  {
+    "kind": "msg",
+    "from": "QUORUM",
+    "to": "COLD",
+    "label": "Unfreeze",
+    "detail": "version 1 (M-of-N)",
+    "cls": "quorum"
+  },
+  {
+    "kind": "msg",
+    "from": "QUORUM",
+    "to": "PROD",
+    "label": "Unfreeze",
+    "detail": "version 1 (M-of-N)",
+    "cls": "quorum"
+  },
+  {
+    "kind": "event",
+    "who": "COLD",
+    "text": "unfroze the key (quorum Unfreeze verified)",
+    "level": "ok"
+  },
+  {
+    "kind": "event",
+    "who": "PROD",
+    "text": "unfroze the key (quorum Unfreeze verified)",
+    "level": "ok"
+  },
+  {
+    "kind": "state",
+    "hot_on": false,
+    "hot_counter": 2,
+    "frozen_hot": false,
+    "frozen_cold": false,
+    "frozen_prod": false,
+    "prod_pool": 6,
+    "cold_pool": 6,
+    "broadcasts": 1,
+    "prod_revoked": false,
+    "prod_gen": 1,
+    "media": 0
+  },
+  {
+    "kind": "note",
+    "text": "replaying that Unfreeze is refused: true"
+  },
+  {
+    "kind": "step",
+    "id": "§6.1",
+    "title": "COLD restart: hardware counter closes the open block"
+  },
+  {
+    "kind": "event",
+    "who": "COLD",
+    "text": "reboot: restore check ✔ → pool counter incremented, open block closed",
+    "level": "warn"
+  },
+  {
+    "kind": "note",
+    "text": "COLD boots: per pool, sealed counter value vs hardware value (restore check) → increment counter"
+  },
+  {
+    "kind": "msg",
+    "from": "COLD",
+    "to": "PROD",
+    "label": "LinkHello",
+    "detail": "cert · nonce · tls_binding",
+    "cls": "hello"
+  },
+  {
+    "kind": "msg",
+    "from": "PROD",
+    "to": "COLD",
+    "label": "LinkHello",
+    "detail": "peer_nonce echoed",
+    "cls": "hello"
+  },
+  {
+    "kind": "msg",
+    "from": "COLD",
+    "to": "PROD",
+    "label": "OrphanDelete",
+    "detail": "stream C, seq 1",
+    "cls": "link-c"
+  },
+  {
+    "kind": "state",
+    "hot_on": false,
+    "hot_counter": 2,
+    "frozen_hot": false,
+    "frozen_cold": false,
+    "frozen_prod": false,
+    "prod_pool": 4,
+    "cold_pool": 4,
+    "broadcasts": 1,
+    "prod_revoked": false,
+    "prod_gen": 1,
+    "media": 0
+  },
+  {
+    "kind": "note",
+    "text": "PROD obeys OrphanDelete: available 6 → 4 (rest of the open block burned, next batch intact)"
+  },
+  {
+    "kind": "note",
+    "text": "UPSTREAM signs WithdrawalEnvelope{request 29b2260b, 2 ETH, path m/hot/0, not_after +120s}"
+  },
+  {
+    "kind": "note",
+    "text": "PROD admission (no state change on refusal): UPSTREAM sig ✔ fresh ✔ not replayed ✔ key active ✔ own decode ✔ own policy ✔ halves available ✔"
+  },
+  {
+    "kind": "msg",
+    "from": "UPSTREAM",
+    "to": "PROD",
+    "label": "WithdrawalEnvelope",
+    "detail": "2 ETH",
+    "cls": "api"
+  },
+  {
+    "kind": "note",
+    "text": "PROD takes the next half (deleted BEFORE computing), computes ssid + 96-byte fragment, HPKE-seals it to COLD"
+  },
+  {
+    "kind": "msg",
+    "from": "PROD",
+    "to": "COLD",
+    "label": "Job",
+    "detail": "stream A, seq 1",
+    "cls": "link-a"
+  },
+  {
+    "kind": "event",
+    "who": "COLD",
+    "text": "signed request 29b2260b → txid 2cb39833",
+    "level": "ok"
+  },
+  {
+    "kind": "msg",
+    "from": "COLD",
+    "to": "PROD",
+    "label": "Status",
+    "detail": "stream A, seq 1",
+    "cls": "link-a"
+  },
+  {
+    "kind": "msg",
+    "from": "PROD",
+    "to": "CHAIN",
+    "label": "broadcast",
+    "detail": "txid 2cb39833",
+    "cls": "chain"
+  },
+  {
+    "kind": "state",
+    "hot_on": false,
+    "hot_counter": 2,
+    "frozen_hot": false,
+    "frozen_cold": false,
+    "frozen_prod": false,
+    "prod_pool": 3,
+    "cold_pool": 3,
+    "broadcasts": 2,
+    "prod_revoked": false,
+    "prod_gen": 1,
+    "media": 0
+  },
+  {
+    "kind": "note",
+    "text": "Status = Signed"
+  },
+  {
+    "kind": "step",
+    "id": "EXIT",
+    "title": "PROD leaves: quorum revokes it (SP1 §8, SP8 §3)"
+  },
+  {
+    "kind": "note",
+    "text": "custodians sign RevocationList{version 1, [SHA-256(PROD id_pk)]}"
+  },
+  {
+    "kind": "msg",
+    "from": "QUORUM",
+    "to": "COLD",
+    "label": "RevocationList",
+    "detail": "v1: SHA-256(PROD id_pk)",
+    "cls": "quorum"
+  },
+  {
+    "kind": "event",
+    "who": "COLD",
+    "text": "discarded pool m/hot/0: party revoked",
+    "level": "warn"
+  },
+  {
+    "kind": "state",
+    "hot_on": false,
+    "hot_counter": 2,
+    "frozen_hot": false,
+    "frozen_cold": false,
+    "frozen_prod": false,
+    "prod_pool": 3,
+    "cold_pool": 0,
+    "broadcasts": 2,
+    "prod_revoked": true,
+    "prod_gen": 1,
+    "media": 0
+  },
+  {
+    "kind": "note",
+    "text": "COLD: revoked key dropped from every keyring, link closed, EVERY presignature pool discarded"
+  },
+  {
+    "kind": "note",
+    "text": "no key ceremony needed: PROD never held a key share"
+  },
+  {
+    "kind": "msg",
+    "from": "PROD",
+    "to": "COLD",
+    "label": "LinkHello",
+    "detail": "old PROD tries to come back",
+    "cls": "fault"
+  },
+  {
+    "kind": "event",
+    "who": "COLD",
+    "text": "refused LinkHello: revoked",
+    "level": "warn"
+  },
+  {
+    "kind": "note",
+    "text": "old PROD tries to link again → COLD refuses: refused: revoked"
+  },
+  {
+    "kind": "step",
+    "id": "JOIN",
+    "title": "A new PROD joins: enroll, public data, link, refill"
+  },
+  {
+    "kind": "msg",
+    "from": "PROD",
+    "to": "QUORUM",
+    "label": "attestation",
+    "detail": "new PROD enclave: measurement + key binding",
+    "cls": "quorum"
+  },
+  {
+    "kind": "msg",
+    "from": "QUORUM",
+    "to": "PROD",
+    "label": "PartyCert + manifest + book + Activate + policy",
+    "detail": "public data only",
+    "cls": "quorum"
+  },
+  {
+    "kind": "msg",
+    "from": "QUORUM",
+    "to": "COLD",
+    "label": "PartyCert (new PROD)",
+    "detail": "queued for HOT's next window",
+    "cls": "quorum"
+  },
+  {
+    "kind": "state",
+    "hot_on": false,
+    "hot_counter": 2,
+    "frozen_hot": false,
+    "frozen_cold": false,
+    "frozen_prod": false,
+    "prod_pool": 0,
+    "cold_pool": 0,
+    "broadcasts": 2,
+    "prod_revoked": false,
+    "prod_gen": 2,
+    "media": 0
+  },
+  {
+    "kind": "msg",
+    "from": "COLD",
+    "to": "PROD",
+    "label": "LinkHello",
+    "detail": "cert · nonce · tls_binding",
+    "cls": "hello"
+  },
+  {
+    "kind": "msg",
+    "from": "PROD",
+    "to": "COLD",
+    "label": "LinkHello",
+    "detail": "peer_nonce echoed",
+    "cls": "hello"
+  },
+  {
+    "kind": "note",
+    "text": "new PROD enclave attested → quorum signs its PartyCert; it receives manifest, book, Activate, policy (public only)"
+  },
+  {
+    "kind": "note",
+    "text": "COLD queued for HOT: RevocationList + the new PROD's PartyCert (HOT must seal bundles to the NEW PROD)"
+  },
+  {
+    "kind": "note",
+    "text": "operators at COLD and at HOT agree to wake HOT (deliver quorum files to HOT and refill for the new PROD)"
+  },
+  {
+    "kind": "state",
+    "hot_on": true,
+    "hot_counter": 2,
+    "frozen_hot": false,
+    "frozen_cold": false,
+    "frozen_prod": false,
+    "prod_pool": 0,
+    "cold_pool": 0,
+    "broadcasts": 2,
+    "prod_revoked": false,
+    "prod_gen": 2,
+    "media": 0
+  },
+  {
+    "kind": "note",
+    "text": "HOT powers on LOCKED and shows its hardware wake counter = 2"
+  },
+  {
+    "kind": "event",
+    "who": "HOT",
+    "text": "HOT wake counter = 2",
+    "level": "display"
+  },
+  {
+    "kind": "state",
+    "hot_on": true,
+    "hot_counter": 2,
+    "frozen_hot": false,
+    "frozen_cold": false,
+    "frozen_prod": false,
+    "prod_pool": 0,
+    "cold_pool": 0,
+    "broadcasts": 2,
+    "prod_revoked": false,
+    "prod_gen": 2,
+    "media": 0
+  },
+  {
+    "kind": "msg",
+    "from": "COLD",
+    "to": "HOT",
+    "label": "LinkHello",
+    "detail": "HOT booted locked: accepts only COLD",
+    "cls": "hello"
+  },
+  {
+    "kind": "msg",
+    "from": "HOT",
+    "to": "COLD",
+    "label": "LinkHello",
+    "detail": "link installed",
+    "cls": "hello"
+  },
+  {
+    "kind": "note",
+    "text": "COLD → HOT WakeOpen{PresignSync, max_batches 1, wake_seq 3}"
+  },
+  {
+    "kind": "event",
+    "who": "COLD",
+    "text": "COLD wake digest 67f2a3ada2f97e78",
+    "level": "display"
+  },
+  {
+    "kind": "msg",
+    "from": "COLD",
+    "to": "HOT",
+    "label": "WakeOpen",
+    "detail": "stream B, seq 1",
+    "cls": "link-b"
+  },
+  {
+    "kind": "event",
+    "who": "HOT",
+    "text": "HOT wake digest 67f2a3ada2f97e78",
+    "level": "display"
+  },
+  {
+    "kind": "state",
+    "hot_on": true,
+    "hot_counter": 3,
+    "frozen_hot": false,
+    "frozen_cold": false,
+    "frozen_prod": false,
+    "prod_pool": 0,
+    "cold_pool": 0,
+    "broadcasts": 2,
+    "prod_revoked": false,
+    "prod_gen": 2,
+    "media": 0
+  },
+  {
+    "kind": "note",
+    "text": "HOT checks: mode allows PresignSync ✔ key active ✔ caps ✔ wake_seq == counter+1 ✔ → counter advanced"
+  },
+  {
+    "kind": "note",
+    "text": "operator at HOT compares the digest on HOT's screen with COLD's screen → match"
+  },
+  {
+    "kind": "msg",
+    "from": "HOT",
+    "to": "COLD",
+    "label": "WakeAccept",
+    "detail": "stream B, seq 1",
+    "cls": "link-b"
+  },
+  {
+    "kind": "state",
+    "hot_on": true,
+    "hot_counter": 3,
+    "frozen_hot": false,
+    "frozen_cold": false,
+    "frozen_prod": false,
+    "prod_pool": 0,
+    "cold_pool": 0,
+    "broadcasts": 2,
+    "prod_revoked": false,
+    "prod_gen": 2,
+    "media": 0
+  },
+  {
+    "kind": "note",
+    "text": "operator at COLD confirms → window OPEN; COLD relays pending quorum files (RosterUpdate first)"
+  },
+  {
+    "kind": "msg",
+    "from": "COLD",
+    "to": "HOT",
+    "label": "QuorumFile",
+    "detail": "stream B, seq 2",
+    "cls": "quorum"
+  },
+  {
+    "kind": "msg",
+    "from": "COLD",
+    "to": "HOT",
+    "label": "QuorumFile",
+    "detail": "stream B, seq 3",
+    "cls": "quorum"
+  },
+  {
+    "kind": "msg",
+    "from": "COLD",
+    "to": "HOT",
+    "label": "QuorumFile",
+    "detail": "stream B, seq 4",
+    "cls": "quorum"
+  },
+  {
+    "kind": "event",
+    "who": "HOT",
+    "text": "unfroze the key (quorum Unfreeze verified)",
+    "level": "ok"
+  },
+  {
+    "kind": "event",
+    "who": "HOT",
+    "text": "verified quorum signatures and applied Unfreeze",
+    "level": "info"
+  },
+  {
+    "kind": "event",
+    "who": "HOT",
+    "text": "verified quorum signatures and applied RevocationList",
+    "level": "info"
+  },
+  {
+    "kind": "event",
+    "who": "HOT",
+    "text": "verified quorum signatures and applied PartyCert",
+    "level": "info"
+  },
+  {
+    "kind": "state",
+    "hot_on": true,
+    "hot_counter": 3,
+    "frozen_hot": false,
+    "frozen_cold": false,
+    "frozen_prod": false,
+    "prod_pool": 0,
+    "cold_pool": 0,
+    "broadcasts": 2,
+    "prod_revoked": false,
+    "prod_gen": 2,
+    "media": 0
+  },
+  {
+    "kind": "note",
+    "text": "SP4 batch 1: COLD allocates ids above the pool's high-water mark in a fresh counter block"
+  },
+  {
+    "kind": "msg",
+    "from": "COLD",
+    "to": "HOT",
+    "label": "PresignOpen",
+    "detail": "stream B, seq 5",
+    "cls": "link-b"
+  },
+  {
+    "kind": "msg",
+    "from": "HOT",
+    "to": "COLD",
+    "label": "PresignAccept",
+    "detail": "stream B, seq 2",
+    "cls": "link-b"
+  },
+  {
+    "kind": "msg",
+    "from": "HOT",
+    "to": "MEDIA",
+    "label": "MediaBundle",
+    "detail": "2404 bytes, sealed to PROD",
+    "cls": "media"
+  },
+  {
+    "kind": "msg",
+    "from": "COLD",
+    "to": "HOT",
+    "label": "PresignMsg ×24",
+    "detail": "DKLs23 R1–R3 both ways, each frame signed + seq-checked",
+    "cls": "presign"
+  },
+  {
+    "kind": "msg",
+    "from": "HOT",
+    "to": "COLD",
+    "label": "PresignStored",
+    "detail": "stream B, seq 15",
+    "cls": "link-b"
+  },
+  {
+    "kind": "state",
+    "hot_on": true,
+    "hot_counter": 3,
+    "frozen_hot": false,
+    "frozen_cold": false,
+    "frozen_prod": false,
+    "prod_pool": 0,
+    "cold_pool": 0,
+    "broadcasts": 2,
+    "prod_revoked": false,
+    "prod_gen": 2,
+    "media": 1
+  },
+  {
+    "kind": "msg",
+    "from": "COLD",
+    "to": "HOT",
+    "label": "WakeClose",
+    "detail": "stream B, seq 18",
+    "cls": "link-b"
+  },
+  {
+    "kind": "state",
+    "hot_on": true,
+    "hot_counter": 3,
+    "frozen_hot": false,
+    "frozen_cold": false,
+    "frozen_prod": false,
+    "prod_pool": 0,
+    "cold_pool": 0,
+    "broadcasts": 2,
+    "prod_revoked": false,
+    "prod_gen": 2,
+    "media": 1
+  },
+  {
+    "kind": "state",
+    "hot_on": false,
+    "hot_counter": 3,
+    "frozen_hot": false,
+    "frozen_cold": false,
+    "frozen_prod": false,
+    "prod_pool": 0,
+    "cold_pool": 0,
+    "broadcasts": 2,
+    "prod_revoked": false,
+    "prod_gen": 2,
+    "media": 1
+  },
+  {
+    "kind": "note",
+    "text": "window closed: HOT erased all session state and POWERED OFF (it holds no halves)"
+  },
+  {
+    "kind": "note",
+    "text": "an operator (not PROD's custodian) carries 1 bundle(s) on removable media to PROD"
+  },
+  {
+    "kind": "msg",
+    "from": "MEDIA",
+    "to": "PROD",
+    "label": "MediaBundle",
+    "detail": "carried by hand, imported",
+    "cls": "media"
+  },
+  {
+    "kind": "note",
+    "text": "PROD imports: HOT cert ✔ signature ✔ seq 0 ✔ HPKE open ✔ recompute digest ✔ ids above high-water ✔ → Pending"
+  },
+  {
+    "kind": "msg",
+    "from": "PROD",
+    "to": "COLD",
+    "label": "TransferAck",
+    "detail": "stream C, seq 1",
+    "cls": "link-c"
+  },
+  {
+    "kind": "event",
+    "who": "COLD",
+    "text": "batch 64a8926b → Active",
+    "level": "info"
+  },
+  {
+    "kind": "msg",
+    "from": "COLD",
+    "to": "PROD",
+    "label": "PresignActivate",
+    "detail": "stream C, seq 1",
+    "cls": "link-c"
+  },
+  {
+    "kind": "event",
+    "who": "PROD",
+    "text": "batch 64a8926b → Active",
+    "level": "info"
+  },
+  {
+    "kind": "state",
+    "hot_on": false,
+    "hot_counter": 3,
+    "frozen_hot": false,
+    "frozen_cold": false,
+    "frozen_prod": false,
+    "prod_pool": 4,
+    "cold_pool": 4,
+    "broadcasts": 2,
+    "prod_revoked": false,
+    "prod_gen": 2,
+    "media": 0
+  },
+  {
+    "kind": "note",
+    "text": "COLD activates each batch only because own digest == HOT's export digest == PROD's import digest"
+  },
+  {
+    "kind": "note",
+    "text": "UPSTREAM signs WithdrawalEnvelope{request 724ff39c, 1 ETH via the new PROD, path m/hot/0, not_after +120s}"
+  },
+  {
+    "kind": "note",
+    "text": "PROD admission (no state change on refusal): UPSTREAM sig ✔ fresh ✔ not replayed ✔ key active ✔ own decode ✔ own policy ✔ halves available ✔"
+  },
+  {
+    "kind": "msg",
+    "from": "UPSTREAM",
+    "to": "PROD",
+    "label": "WithdrawalEnvelope",
+    "detail": "1 ETH via the new PROD",
+    "cls": "api"
+  },
+  {
+    "kind": "note",
+    "text": "PROD takes the next half (deleted BEFORE computing), computes ssid + 96-byte fragment, HPKE-seals it to COLD"
+  },
+  {
+    "kind": "msg",
+    "from": "PROD",
+    "to": "COLD",
+    "label": "Job",
+    "detail": "stream A, seq 1",
+    "cls": "link-a"
+  },
+  {
+    "kind": "event",
+    "who": "COLD",
+    "text": "signed request 724ff39c → txid dd56bbc1",
+    "level": "ok"
+  },
+  {
+    "kind": "msg",
+    "from": "COLD",
+    "to": "PROD",
+    "label": "Status",
+    "detail": "stream A, seq 1",
+    "cls": "link-a"
+  },
+  {
+    "kind": "msg",
+    "from": "PROD",
+    "to": "CHAIN",
+    "label": "broadcast",
+    "detail": "txid dd56bbc1",
+    "cls": "chain"
+  },
+  {
+    "kind": "state",
+    "hot_on": false,
+    "hot_counter": 3,
+    "frozen_hot": false,
+    "frozen_cold": false,
+    "frozen_prod": false,
+    "prod_pool": 3,
+    "cold_pool": 3,
+    "broadcasts": 3,
+    "prod_revoked": false,
+    "prod_gen": 2,
+    "media": 0
+  },
+  {
+    "kind": "note",
+    "text": "Status = Signed for the new PROD's job_seq 1 (COLD keys jobs by PROD identity + job_seq)"
+  },
+  {
+    "kind": "note",
+    "text": "broadcast by the new PROD ✔"
+  },
+  {
+    "kind": "step",
+    "id": "JOIN",
+    "title": "A new auditor joins as an address-proof requester"
+  },
+  {
+    "kind": "msg",
+    "from": "QUORUM",
+    "to": "REQUESTER",
+    "label": "PartyCert",
+    "detail": "new auditor (role Requester)",
+    "cls": "quorum"
+  },
+  {
+    "kind": "msg",
+    "from": "QUORUM",
+    "to": "PROD",
+    "label": "PartyCert (auditor)",
+    "detail": "enrolled requester",
+    "cls": "quorum"
+  },
+  {
+    "kind": "note",
+    "text": "quorum signs PartyCert{role Requester}; PROD enrolls it"
+  },
+  {
+    "kind": "msg",
+    "from": "REQUESTER",
+    "to": "PROD",
+    "label": "AddressQuery",
+    "detail": "auditor: hot address 2",
+    "cls": "api"
+  },
+  {
+    "kind": "msg",
+    "from": "PROD",
+    "to": "REQUESTER",
+    "label": "AddressProof",
+    "detail": "verifies offline",
+    "cls": "api"
+  },
+  {
+    "kind": "note",
+    "text": "auditor asks about 0x7c808a5c98f847cb1cc904352349f859ed127f61 → proof verifies offline: true"
+  },
+  {
+    "kind": "msg",
+    "from": "REQUESTER",
+    "to": "PROD",
+    "label": "AddressQuery",
+    "detail": "auditor: attacker's address",
+    "cls": "api"
+  },
+  {
+    "kind": "msg",
+    "from": "PROD",
+    "to": "REQUESTER",
+    "label": "NotFound",
+    "detail": "signed: not ours",
+    "cls": "api"
+  },
+  {
+    "kind": "note",
+    "text": "auditor asks about 0x6666666666666666666666666666666666666666 → NotFound (never \"probably ours\")"
+  },
+  {
+    "kind": "step",
+    "id": "EXIT",
+    "title": "A share holder (HOT / COLD / REC) is lost: sweep, never repair (SP8 §4)"
+  },
+  {
+    "kind": "note",
+    "text": "outside CHP, by design: the two surviving share holders sign a sweep of all funds to a"
+  },
+  {
+    "kind": "note",
+    "text": "pre-registered cold-wallet address in a quorum-opened offline ceremony (no presignatures),"
+  },
+  {
+    "kind": "note",
+    "text": "then a NEW key is made from scratch (SP2) with new enclaves for the suspect party."
+  },
+  {
+    "kind": "note",
+    "text": "HOT lost → COLD + REC sign · COLD lost → HOT + REC sign · REC lost → HOT + COLD sign"
+  },
+  {
+    "kind": "step",
+    "id": "DONE",
+    "title": "Summary"
+  },
+  {
+    "kind": "note",
+    "text": "withdrawals broadcast: 3"
+  },
+  {
+    "kind": "note",
+    "text": "  txid 8c56ccadb476c760  from 0x248f95ba8e11dcfa380a06ff3af80fc8f5205c23"
+  },
+  {
+    "kind": "note",
+    "text": "  txid 2cb3983385fa8ebf  from 0x248f95ba8e11dcfa380a06ff3af80fc8f5205c23"
+  },
+  {
+    "kind": "note",
+    "text": "  txid dd56bbc1df732765  from 0x248f95ba8e11dcfa380a06ff3af80fc8f5205c23"
+  },
+  {
+    "kind": "note",
+    "text": "the full private key never existed; PROD never held a share; every frame was signed,"
+  },
+  {
+    "kind": "note",
+    "text": "sequence-checked and role-checked before it was parsed."
+  },
+  {
+    "kind": "state",
+    "hot_on": false,
+    "hot_counter": 3,
+    "frozen_hot": false,
+    "frozen_cold": false,
+    "frozen_prod": false,
+    "prod_pool": 3,
+    "cold_pool": 3,
+    "broadcasts": 3,
+    "prod_revoked": false,
+    "prod_gen": 2,
+    "media": 0
+  }
+]
