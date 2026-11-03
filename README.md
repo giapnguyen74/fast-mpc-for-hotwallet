@@ -50,7 +50,7 @@ Rust workspace (see [`docs/PLAN.md`](docs/PLAN.md)):
 | `chp-engine-hot`, `chp-engine-cold`, `chp-engine-prod` | one engine per role |
 | `chp-ceremony` | enrollment, DKG ceremony, share packages, address book, REC |
 | `chp-sim` | in-process simulator and end-to-end / adversarial tests |
-| `thirdparty/dkls23` | vendored Silence Laboratories DKLs23 (non-commercial license, see `NOTICE`) |
+| `thirdparty/dkls23` | vendored Silence Laboratories DKLs23 (third-party, own non-commercial license, see `THIRD_PARTY_LICENSES.md`) |
 
 ## Running
 
@@ -68,9 +68,10 @@ built yet. Findings about the design: [`docs/design-notes.md`](docs/design-notes
 
 ## Licensing
 
-`thirdparty/dkls23` is licensed under the Silence Laboratories **Non-Commercial** License
-Agreement, which also places its non-commercial and notice terms on programs built with it. See
-[`NOTICE`](NOTICE).
+The code of this repository is MIT-licensed ([`LICENSE`](LICENSE)). Third-party components keep
+their own licenses: `thirdparty/dkls23` is under the Silence Laboratories **Non-Commercial**
+License. Commercial use of it is the user's own responsibility. See
+[`THIRD_PARTY_LICENSES.md`](THIRD_PARTY_LICENSES.md) and [`NOTICE`](NOTICE).
 
 ## Warnings
 
