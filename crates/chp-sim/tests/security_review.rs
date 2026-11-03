@@ -41,7 +41,7 @@ async fn a_withheld_unfreeze_cannot_lift_a_later_freeze() {
     w.cold.freeze(w.key_id, 1, Fault::ProdFragment, B32([2; 32]), None);
     w.pump().await;
     // replaying u1 (even re-signed with a higher version for the old incident) does not lift it
-    let stale = w.q.ceremony.sign(w.q.m, MsgType::Unfreeze, &UnfreezeBody { key_id: w.key_id, key_version: 1, version: 99, evidence_hash: B32([1; 32]) });
+    let stale = w.q.ceremony.sign(w.q.m, MsgType::Unfreeze, &UnfreezeBody { key_id: w.key_id, key_version: 1, version: 99, evidence: vec![B32([1; 32])] });
     assert!(w.cold.apply_quorum(&u1, w.now).is_err());
     assert!(w.cold.apply_quorum(&stale, w.now).is_err());
     assert_eq!(frozen(&w), Some(Fault::ProdFragment));
@@ -179,7 +179,16 @@ async fn hot_refuses_presign_for_a_key_outside_the_agreed_window() {
         w.cold.adversary_send_to_hot(MsgType::PresignOpen, &open);
         w.pump().await;
     }
-    let refusals = w.cold.events.iter().filter(|e| matches!(e, Event::Info(s) if s.contains("presign refused: VersionMismatch"))).count();
+    let refusals = w
+        .cold
+        .events
+        .iter()
+        .filter(|e| match e {
+            Event::Info(s) => s.contains("presign refused: VersionMismatch"),
+            Event::Refused { why, .. } => why.contains("VersionMismatch"),
+            _ => false,
+        })
+        .count();
     assert_eq!(refusals, 2, "{:?}", w.cold.events);
     assert!(w.media.is_empty(), "nothing exported");
 }
@@ -192,7 +201,7 @@ async fn prod_discards_halves_when_a_disconnected_cold_is_revoked() {
     // the suspect COLD is disconnected when the quorum revokes it
     w.prod.link_lost();
     let cold_hash = B32(chp_crypto::ident::key_hash(&w.cold.enclave.id.public()));
-    let rl = w.q.sign(MsgType::RevocationList, &RevocationList { version: 1, revoked: vec![cold_hash] });
+    let rl = w.q.sign(MsgType::RevocationList, &RevocationList { version: 1, revoked: vec![Revoked::party(chp_wire::Role::Cold, cold_hash)] });
     w.prod.apply_quorum(&rl, w.now).unwrap();
     assert_eq!(w.prod.available(&w.pool(PATH)), 0, "PROD's key-equivalent halves are gone");
     assert!(w.prod.held_ids(&w.pool(PATH)).is_empty());

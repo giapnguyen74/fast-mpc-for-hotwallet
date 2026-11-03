@@ -55,9 +55,33 @@ pub fn signed_msg_input(t: u16, seq: u64, body: &[u8]) -> Vec<u8> {
     m
 }
 
+/// Signature input of a frame on an installed link: also binds the link session id, so a frame
+/// from an earlier session can never be replayed into a later one (security review round 2).
+pub fn link_msg_input(link_id: &[u8; 32], t: u16, seq: u64, body: &[u8]) -> Vec<u8> {
+    let mut m = b"chp-link-v1".to_vec();
+    m.extend_from_slice(link_id);
+    m.extend_from_slice(&t.to_be_bytes());
+    m.extend_from_slice(&seq.to_be_bytes());
+    m.extend_from_slice(&chp_crypto::hash::sha256(body));
+    m
+}
+
 /// Sign a `SignedMsg` with an enclave identity key.
 pub fn sign_msg(id: &chp_crypto::ident::IdKey, t: MsgType, seq: u64, body: Vec<u8>) -> chp_wire::SignedMsg {
     let sig = id.sign(&signed_msg_input(t.code(), seq, &body));
+    chp_wire::SignedMsg {
+        msg_type: t.code(),
+        seq,
+        body: chp_wire::Bytes(body),
+        signer: chp_wire::B32(chp_crypto::ident::key_hash(&id.public())),
+        sig: chp_wire::B64(sig),
+    }
+}
+
+/// Sign a frame for an installed link with session id `link_id` (what [`link::Link::seal`]
+/// does; exposed for tests that craft frames).
+pub fn sign_link(id: &chp_crypto::ident::IdKey, link_id: &[u8; 32], t: MsgType, seq: u64, body: Vec<u8>) -> chp_wire::SignedMsg {
+    let sig = id.sign(&link_msg_input(link_id, t.code(), seq, &body));
     chp_wire::SignedMsg {
         msg_type: t.code(),
         seq,

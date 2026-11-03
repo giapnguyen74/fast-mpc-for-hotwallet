@@ -81,12 +81,18 @@ pub struct Prod {
     /// job_seq → encoded Job frame body (re-sent after a reconnect).
     outbox: BTreeMap<u64, Job>,
     pending_env: BTreeMap<u64, (WithdrawalEnvelope, chp_chain::Decoded, u64)>,
+    /// Control messages for COLD waiting for the link.
+    queued: Vec<(u16, Vec<u8>)>,
     pub out: Vec<Out>,
     pub events: Vec<Event>,
 }
 
 impl Prod {
-    pub fn new(enclave: Enclave, pinned: &Pinned, cold_replica: u8) -> Self {
+    pub fn new(mut enclave: Enclave, pinned: &Pinned, cold_replica: u8) -> Self {
+        // job_seq starts from a hardware boot counter, so a restarted PROD with the same identity
+        // never reuses a job_seq COLD has already seen (security review round 2).
+        let boot = enclave.counters.increment("prod-boot");
+        let first_job_seq = (boot << 32) | 1;
         Prod {
             enclave,
             trust: Trust::new(pinned),
@@ -104,9 +110,10 @@ impl Prod {
             cold: None,
             cold_wrap_pk: None,
             hot_signers: Default::default(),
-            next_job_seq: 1,
+            next_job_seq: first_job_seq,
             outbox: BTreeMap::new(),
             pending_env: BTreeMap::new(),
+            queued: Vec::new(),
             out: Vec::new(),
             events: Vec::new(),
         }
@@ -199,7 +206,8 @@ impl Prod {
 
     /// PROD accepts only COLD's link and opens none.
     pub fn on_hello(&mut self, bytes: &[u8], tls: B32, now: u64) -> Result<Vec<u8>, Refusal> {
-        let (link, h) = accept_hello(&mut self.trust, Role::Prod, now, bytes, tls, &[Role::Cold], None).map_err(|e| Refusal::Other(e.to_string()))?;
+        let my_nonce = B32(rand::random());
+        let (link, h) = accept_hello(&mut self.trust, Role::Prod, now, bytes, tls, &[Role::Cold], None, my_nonce).map_err(|e| Refusal::Other(e.to_string()))?;
         // Only this PROD's COLD replica, on the linked route (security review).
         if link.peer.replica != self.cold_replica || link.peer.qr_route {
             return Err(Refusal::Other("COLD replica or route not paired with this PROD".into()));
@@ -210,11 +218,12 @@ impl Prod {
         }
         self.cold_wrap_pk = Some(link.peer.wrap_pk);
         self.cold = Some(link);
+        self.flush_queue();
         let reply = make_hello(HelloParams {
             id: &self.enclave.id,
             cert: &self.cert,
             roster_updates: vec![],
-            nonce: B32(rand::random()),
+            nonce: my_nonce,
             peer_nonce: Some(h.nonce),
             keys: self.keyring.all().map(|e| (e.manifest.key_id, e.manifest.key_version)).collect(),
             policy_ver: None,
@@ -245,6 +254,17 @@ impl Prod {
         if let Some(l) = self.cold.as_mut() {
             let b = l.seal(&self.enclave.id, t, body);
             self.out.push(Out::Send { to: Role::Cold, bytes: b });
+        } else if t != MsgType::Job {
+            // control messages are not lost while unlinked (jobs are re-sent from the outbox)
+            self.queued.push((t.code(), encode(body)));
+        }
+    }
+
+    fn flush_queue(&mut self) {
+        let Some(l) = self.cold.as_mut() else { return };
+        for (t, body) in std::mem::take(&mut self.queued) {
+            let b = l.seal_raw(&self.enclave.id, MsgType::from_code(t).expect("queued"), body);
+            self.out.push(Out::Send { to: Role::Cold, bytes: b });
         }
     }
 
@@ -273,15 +293,13 @@ impl Prod {
             None => {}
         }
         // Content checks; a refusal of an authenticated bundle aborts the batch.
-        match self.import_content(&tr, now) {
+        match self.import_content(&tr, now, cert.replica) {
             Ok(halves) => {
                 let pid = PoolId { key_id: tr.key_id, key_version: tr.key_version, path: tr.path.clone() };
                 let pool = self.pools.entry(pid.clone()).or_default();
                 for (id, h) in halves {
                     pool.insert(id, (h, tr.batch_id));
                 }
-                let hw = self.high_water.entry(pid.clone()).or_insert(0);
-                *hw = (*hw).max(*tr.presig_ids.last().unwrap());
                 self.batches.insert(tr.batch_id, BatchRec { pool: pid, ids: tr.presig_ids.clone(), st: PBatch::Pending, import_deadline: tr.import_deadline, digest: tr.digest });
                 self.send(MsgType::TransferAck, &BatchDigest { batch_id: tr.batch_id, digest: tr.digest });
                 Ok(())
@@ -295,7 +313,7 @@ impl Prod {
         }
     }
 
-    fn import_content(&self, tr: &PresigTransfer, now: u64) -> Result<Vec<(PresigId, EcdsaHalf)>, String> {
+    fn import_content(&self, tr: &PresigTransfer, now: u64, hot_replica: u8) -> Result<Vec<(PresigId, EcdsaHalf)>, String> {
         let k = self.keyring.get(&tr.key_id, tr.key_version).ok_or("unknown key version")?;
         if k.state != chp_wire::KeyState::Active {
             return Err("key not active".into());
@@ -306,10 +324,13 @@ impl Prod {
         if tr.presig_ids.is_empty() || tr.presig_ids.len() > 256 || !tr.presig_ids.windows(2).all(|w| w[0] < w[1]) {
             return Err("ids must be 1..=256 and strictly increasing".into());
         }
-        if tr.presig_ids.iter().any(|i| presig_id::replicas(*i).1 != self.cold_replica) {
+        if tr.presig_ids.iter().any(|i| presig_id::replicas(*i) != (hot_replica, self.cold_replica)) {
             return Err("ids outside this replica's range".into());
         }
         let pid = PoolId { key_id: tr.key_id, key_version: tr.key_version, path: tr.path.clone() };
+        if self.pools.get(&pid).is_some_and(|m| tr.presig_ids.iter().any(|i| m.contains_key(i))) {
+            return Err("ids already held (pending or active)".into());
+        }
         if let Some(hw) = self.high_water.get(&pid) {
             if tr.presig_ids.first().is_some_and(|f| f <= hw) {
                 return Err("store high-water mark refuses these ids".into());
@@ -360,6 +381,11 @@ impl Prod {
                 match self.batches.get_mut(&a.batch_id) {
                     Some(b) if b.st == PBatch::Pending && b.digest == a.digest => {
                         b.st = PBatch::Active;
+                        // the high-water mark moves only for batches COLD activated (a forged
+                        // HOT bundle can never block the pool; security review round 2)
+                        let top = *b.ids.last().unwrap();
+                        let hw = self.high_water.entry(b.pool.clone()).or_insert(0);
+                        *hw = (*hw).max(top);
                         self.events.push(Event::BatchState { batch_id: a.batch_id, state: "Active".into() });
                     }
                     _ => self.refused("PresignActivate", "batch not pending"),
@@ -398,14 +424,15 @@ impl Prod {
         let _ = job;
         if let (Outcome::Signed, Some(tx), Some(txid)) = (s.outcome, s.signed_tx.as_ref(), s.txid) {
             let env = self.pending_env.remove(&s.job_seq);
-            if let Some((env, decoded, when)) = env {
-                if let Some(p) = self.policy.get_mut(&env.key_id) {
-                    p.record(&decoded, when);
-                }
+            if let Some((env, _decoded, _when)) = env {
                 self.out.push(Out::Broadcast { chain: env.chain, signed_tx: tx.0.clone(), txid });
             }
         } else {
-            self.pending_env.remove(&s.job_seq);
+            if let Some((env, decoded, when)) = self.pending_env.remove(&s.job_seq) {
+                if let Some(p) = self.policy.get_mut(&env.key_id) {
+                    p.release(&decoded, when); // not signed: give the reservation back
+                }
+            }
             self.events.push(Event::Info(format!("job {} → {:?}: {}", s.job_seq, s.outcome, s.reason)));
         }
     }
@@ -425,7 +452,10 @@ impl Prod {
         }
         let (_, body) = check_standalone(&cert, Role::Prod, envelope_frame, MsgType::WithdrawalEnvelope).map_err(|e| adm(&e.to_string()))?;
         let env: WithdrawalEnvelope = decode_canonical(&body).map_err(|e| adm(&e.to_string()))?;
-        if now > env.not_after || env.not_after.saturating_sub(env.upstream_time) > 300 || env.not_after > now + 300 {
+        if !cert.key_ids.is_empty() && !cert.key_ids.contains(&env.key_id) {
+            return Err(adm("UPSTREAM certificate does not cover this key"));
+        }
+        if now > env.not_after || env.not_after.saturating_sub(env.upstream_time) > 300 || env.not_after > now + 300 || env.upstream_time > now + 120 {
             return Err(adm("expired or validity window over 300 s"));
         }
         if self.replay.contains(&env.request_id) {
@@ -458,6 +488,11 @@ impl Prod {
         let wrap = self.cold_wrap_pk.ok_or(adm("no COLD link"))?;
         // ---- admission passed: from here state changes ----
         self.replay.check_and_insert(env.request_id, env.not_after, now);
+        // Reserve the amount now; released if COLD does not sign (security review round 2: a
+        // burst of requests admitted before any Status came back bypassed the daily limit).
+        if let Some(p) = self.policy.get_mut(&env.key_id) {
+            p.record(&decoded, now);
+        }
         let y = k.group_key();
         let t = t_path(&env.key_id.0, &y, &env.path);
         let mut items = Vec::new();
@@ -495,7 +530,8 @@ impl Prod {
         for p in pools {
             let available: Vec<PresigId> = self.pools[&p].keys().copied().filter(|i| self.is_active(&p, *i)).collect();
             let high_water = *self.high_water.get(&p).unwrap_or(&0);
-            self.send(MsgType::PoolStatus, &PoolStatus { pool: p, available, high_water });
+            let active_batches: Vec<B32> = self.batches.iter().filter(|(_, b)| b.st == PBatch::Active && b.pool == p).map(|(k, _)| *k).collect();
+            self.send(MsgType::PoolStatus, &PoolStatus { pool: p, available, high_water, active_batches });
         }
     }
 
@@ -513,11 +549,11 @@ impl Prod {
         if now > q.not_after || q.not_after > now + 300 || !self.query_replay.check_and_insert(q.nonce, q.not_after, now) {
             return Err(Refusal::Other("expired or replayed query".into()));
         }
-        let entry = self.book.find(&q.chain, q.address.as_deref(), q.path.as_deref()).cloned();
-        let manifest = self.book.book.as_ref().and_then(|b| self.keyring.get(&b.key_id, b.key_version)).map(|k| k.manifest_bytes.clone());
-        match (entry, manifest) {
-            (Some(entry), Some(manifest)) => {
-                let p = AddressProof { nonce: q.nonce, request_id: q.request_id, entry, book: Bytes(self.book.bytes.clone()), manifest: Bytes(manifest), prod_cert: Bytes(self.cert.clone()) };
+        let found = self.book.find(&q.chain, q.address.as_deref(), q.path.as_deref()).map(|(e, b, k, v)| (e.clone(), b.to_vec(), k, v));
+        let manifest = found.as_ref().and_then(|(_, _, k, v)| self.keyring.get(k, *v)).map(|k| k.manifest_bytes.clone());
+        match (found, manifest) {
+            (Some((entry, book, _, _)), Some(manifest)) => {
+                let p = AddressProof { nonce: q.nonce, request_id: q.request_id, entry, book: Bytes(book), manifest: Bytes(manifest), prod_cert: Bytes(self.cert.clone()) };
                 Ok(sign_body(&self.enclave.id, MsgType::AddressProof, 0, &p))
             }
             _ => Ok(sign_body(&self.enclave.id, MsgType::NotFound, 0, &NotFound { nonce: q.nonce, request_id: q.request_id })),
@@ -557,13 +593,14 @@ impl Prod {
                 // A hash alone does not say whether an unlinked key was a COLD or HOT (security
                 // review: the compromised COLD is usually the disconnected one), so anything that
                 // is not a known client discards conservatively.
-                let mut discard = false;
-                for h in &newly {
-                    if self.clients.remove(h).is_none() {
-                        discard = true;
-                    }
+                // Revocation entries carry the role: revoking HOT, COLD or PROD discards every
+                // pool (even when that COLD is not linked); clients/custodians discard nothing.
+                let discard = newly.iter().any(|r| r.is_share_side());
+                let hashes: Vec<B32> = newly.iter().map(|r| r.key_hash).collect();
+                for h in &hashes {
+                    self.clients.remove(h);
                 }
-                if self.cold.as_ref().is_some_and(|l| newly.contains(&l.peer_signer)) {
+                if self.cold.as_ref().is_some_and(|l| hashes.contains(&l.peer_signer)) {
                     self.cold = None;
                 }
                 if discard {

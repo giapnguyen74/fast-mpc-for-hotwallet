@@ -1,6 +1,6 @@
 # Security review
 
-Internal review of the prototype, 2026-11-03. Three independent reviewers covered:
+Internal review of the prototype, 2026-11-03 (two rounds). Three independent reviewers covered:
 
 1. COLD's signing path (everything a compromised PROD can send, plus policy, chain decoding and anti-rollback);
 2. authentication, wire format, HOT, PROD, media transfer and address proofs;
@@ -65,6 +65,47 @@ Severity: **H** high · **M** medium · **L** low. Every "fixed" item is in the 
 | S24 | L | ceremony | Share import / receipts under-checked; 64-bit Y fingerprint; package `info` without manifest hash | **fixed**: kind/key/own-cert checks, full receipt checks, 128-bit fingerprint, `info` binds manifest hash |
 | S25 | L | policy | Daily limit bucketed by calendar day (2× across midnight) | **fixed**: rolling 24 h window |
 | S26 | L | COLD | A bad job from PROD could burn a genuine request_id; revoking UPSTREAM discarded pools | **fixed** |
+
+
+## Round 2 (re-review of the fixes + fresh attacker scenarios)
+
+Two more reviewers: one audited every round-1 fix for bypasses and regressions; one worked through
+attacker scenarios round 1 did not cover (compromised HOT, compromised UPSTREAM, malicious COLD
+host outside the enclave, network attacker, colluding pairs). No scenario produced a signature
+without a valid UPSTREAM envelope or extracted COLD's share. Findings, all fixed with regression
+tests in `crates/chp-sim/tests/security_review_r2.rs` (and SP1 tests); tests marked † were
+mutation-checked (fail on the unfixed code):
+
+| # | Sev | Finding | Fix · test |
+|---|---|---|---|
+| R1 | H | **S2 bypass**: restoring a snapshot taken while the key was already frozen kept the *old* freeze evidence, so an old public Unfreeze lifted it and the rolled-back state (e.g. a revoked UPSTREAM) came back | rollback **overwrites** every key's freeze; evidence bound to the boot's counter value; restore announced (event + FreezeNotice to PROD) · `r1_…` † |
+| R2 | H | **COLD daily limit bypass by a malicious COLD host** feeding a clock walked through the past | COLD's time = host clock floored by *authenticated* time (signed request times only); future-dated envelopes refused; policy uses the authenticated job time · `r5_…` † (with an honest-clock control) |
+| R3 | M | S23's TTL cap reopened double-signing for **future-dated envelopes** | COLD bounds `upstream_time` / `not_after` against its own time · `r2_…` † |
+| R4 | M | **PROD's daily limit ignored in-flight jobs** (burst of requests) | amount reserved at admission, released if not signed · `r6_…` |
+| R5 | M | **Deep RLP nesting** overflowed the stack (process abort) | depth limit 8 · `chp-chain` unit test (20 000 levels) |
+| R6 | M | **Link frames not bound to the session**: frames replayed into a later link (old FreezeNotice re-froze; old PoolStatus deleted a batch) | every link frame signs a session id `H(dialer nonce ‖ responder nonce ‖ TLS binding)` · `frames_from_an_earlier_session_cannot_be_replayed` |
+| R7 | M | **High-security mode bypass**: a `Dkg` window could refill the old key; operators approved digests blind | a `Dkg` window must name a new key; both sides display stage, key, version, caps, deadline · `r7_…` |
+| R8 | M | **Compromised HOT could abort Active batches** (and send PresignStored out of order) | PresignRefuse only while Opened/Rounds; PresignStored once, in Rounds · `r8_…` |
+| R9 | M | Crash between counter increment and sealing looked like a restore (fail-closed outage on demand) | seal `hw+1` first, then increment; boot accepts and catches up · `r3_…` |
+| R10 | M | `sim-hooks` gate unreliable (script blind to a crate's own features, failed open; workspace builds unified the feature) | hooks enabled only through `chp-sim` **dev-dependencies** (never unified into normal builds); script checks resolved features per engine and for the workspace, fails closed · mutation-checked (`default = ["sim-hooks"]` is caught) |
+| R11 | L/M | Revoking a requester or custodian discarded every pool | `RevocationList` entries carry the role; only HOT/COLD/PROD revocations discard · `r4_…` |
+| R12 | L | One Unfreeze could not lift freezes held with different evidence; an Unfreeze for an unfrozen key burned a version | Unfreeze names a set of evidence; refused (nothing consumed) when not frozen |
+| R13 | L | A far-future host clock made COLD unusable for good (sealed floor) | the floor moves only on authenticated time · `r9_…` |
+| R14 | L | A pending (not yet activated) manifest stopped signing with the current version | `current()` = highest **Active** version · `r10_…` |
+| R15 | L | A forged HOT bundle could raise PROD's high-water mark and block the pool | the mark moves only on `PresignActivate`; HOT replica bits and duplicate ids checked |
+| R16 | L | One address book per party shared by all keys | one book per key |
+| R17 | L | Address-proof "wrong entry" alarm raised before PROD's signature was checked; case-insensitive comparison for all chains | binding checked after authentication; exact match except EVM hex |
+| R18 | L | HOT re-hello mid-window; any COLD replica could link to HOT | one hello per boot, before any window; COLD replica pinned |
+| R19 | L | Control messages lost while unlinked; queued HOT files / OrphanDeletes lost on COLD reboot | sealed outgoing queues at COLD, queue at PROD, flushed on link |
+| R20 | L | PROD `job_seq` restarted after a PROD restart | starts from a hardware boot counter |
+| R21 | L | PoolStatus crossing a PresignActivate could delete a new batch | reconciliation limited to batches both sides hold as Active |
+| R22 | L | `PartyCert.key_ids` never enforced; UPSTREAM could sign for any key | enforced at PROD and COLD when non-empty |
+| R23 | L | Smaller: HOT dropped exports silently (now PresignRefuse), COLD import version check, Activate-after-Retire consumed a version, shares imported without a state-counter advance | fixed |
+
+Documented, not changed: **HOT-made bad halves are blamed on PROD** (the batch digest covers only
+public parts; a compromised HOT can corrupt the halves it seals for PROD, and the first job then
+fails as a PROD fragment fault). Incident response must treat a `FAULT_PROD_FRAGMENT` on a fresh
+batch as possibly HOT. The library's `PreSign` is `Copy`, so its zeroization is best-effort.
 
 ## Open items (accepted for the prototype)
 

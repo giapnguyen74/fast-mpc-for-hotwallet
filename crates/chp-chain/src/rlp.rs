@@ -17,7 +17,14 @@ fn be_len(b: &[u8]) -> Result<usize, ChainError> {
     Ok(b.iter().fold(0usize, |a, x| (a << 8) | *x as usize))
 }
 
-fn decode_one(b: &[u8]) -> Result<(Item, usize), ChainError> {
+/// Max list nesting (EIP-1559 needs 2). Untrusted input must not recurse without bound
+/// (security review round 2: deep nesting overflowed the stack and aborted the process).
+pub const MAX_DEPTH: usize = 8;
+
+fn decode_one(b: &[u8], depth: usize) -> Result<(Item, usize), ChainError> {
+    if depth > MAX_DEPTH {
+        return Err(ChainError::Malformed("rlp nesting too deep"));
+    }
     let p = *b.first().ok_or(M)?;
     match p {
         0x00..=0x7f => Ok((Item::Bytes(vec![p]), 1)),
@@ -39,7 +46,7 @@ fn decode_one(b: &[u8]) -> Result<(Item, usize), ChainError> {
         }
         0xc0..=0xf7 => {
             let l = (p - 0xc0) as usize;
-            Ok((Item::List(decode_list(b.get(1..1 + l).ok_or(M)?)?), 1 + l))
+            Ok((Item::List(decode_list(b.get(1..1 + l).ok_or(M)?, depth + 1)?), 1 + l))
         }
         0xf8..=0xff => {
             let ll = (p - 0xf7) as usize;
@@ -47,15 +54,15 @@ fn decode_one(b: &[u8]) -> Result<(Item, usize), ChainError> {
             if l < 56 {
                 return Err(M);
             }
-            Ok((Item::List(decode_list(b.get(1 + ll..1 + ll + l).ok_or(M)?)?), 1 + ll + l))
+            Ok((Item::List(decode_list(b.get(1 + ll..1 + ll + l).ok_or(M)?, depth + 1)?), 1 + ll + l))
         }
     }
 }
 
-fn decode_list(mut b: &[u8]) -> Result<Vec<Item>, ChainError> {
+fn decode_list(mut b: &[u8], depth: usize) -> Result<Vec<Item>, ChainError> {
     let mut v = Vec::new();
     while !b.is_empty() {
-        let (it, n) = decode_one(b)?;
+        let (it, n) = decode_one(b, depth)?;
         v.push(it);
         b = &b[n..];
     }
@@ -64,7 +71,7 @@ fn decode_list(mut b: &[u8]) -> Result<Vec<Item>, ChainError> {
 
 /// Decode exactly one item spanning all of `b`.
 pub fn decode(b: &[u8]) -> Result<Item, ChainError> {
-    let (it, n) = decode_one(b)?;
+    let (it, n) = decode_one(b, 0)?;
     if n != b.len() {
         return Err(M);
     }

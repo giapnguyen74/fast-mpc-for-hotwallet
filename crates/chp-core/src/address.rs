@@ -33,43 +33,53 @@ pub fn verify_control_sig(m: &KeyManifest, e: &AddressEntry) -> bool {
     chp_crypto::verify::ecdsa_verify(&derived_key(&m.key_id.0, &y, &e.path), &st, &sig).is_ok()
 }
 
-/// An engine's current address book.
+/// An engine's address books, one per key (security review round 2: a single shared book let
+/// one key's book disable another's paths).
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct BookView {
-    pub book: Option<AddressBook>,
-    pub bytes: Vec<u8>,
+    books: std::collections::BTreeMap<KeyId, (AddressBook, Vec<u8>)>,
 }
 
 impl BookView {
-    /// Verify and install a quorum-signed book; refuses `book_version` at or below the last.
+    /// Verify and install a quorum-signed book for its key; refuses `book_version` at or below
+    /// the last one accepted **for that key**.
     pub fn install(&mut self, trust: &Trust, bytes: &[u8], manifest: &KeyManifest, manifest_hash: &B32) -> Result<(), AuthError> {
         let b: AddressBook = trust.verify_quorum(bytes, MsgType::AddressBook)?;
         if b.manifest_hash != *manifest_hash || b.key_id != manifest.key_id {
             return Err(AuthError::Quorum("book does not reference this manifest".into()));
         }
-        let last = self.book.as_ref().map(|b| b.book_version).unwrap_or(0);
+        let last = self.books.get(&b.key_id).map(|(b, _)| b.book_version).unwrap_or(0);
         if b.book_version <= last {
             return Err(AuthError::Rollback { got: b.book_version, last });
         }
-        self.book = Some(b);
-        self.bytes = bytes.to_vec();
+        self.books.insert(b.key_id, (b, bytes.to_vec()));
         Ok(())
     }
 
-    /// Is `path` an `Active` entry of the current book for this key? (SP10 §2: a path outside
-    /// the book can never be signed for.)
+    /// Is `path` an `Active` entry of this key's current book? (SP10 §2: a path outside the
+    /// book can never be signed for.)
     pub fn path_active(&self, key_id: &KeyId, path: &str) -> bool {
-        self.book.as_ref().is_some_and(|b| {
-            b.key_id == *key_id && b.entries.iter().any(|e| e.path == path && e.status == AddressStatus::Active)
-        })
+        self.books.get(key_id).is_some_and(|(b, _)| b.entries.iter().any(|e| e.path == path && e.status == AddressStatus::Active))
     }
 
-    pub fn find(&self, chain: &str, address: Option<&str>, path: Option<&str>) -> Option<&AddressEntry> {
-        self.book.as_ref()?.entries.iter().find(|e| {
-            e.chain == chain
-                && address.is_none_or(|a| e.address.eq_ignore_ascii_case(a))
-                && path.is_none_or(|p| e.path == p)
+    /// Find an entry across all keys' books: (entry, book bytes, key id, key version).
+    pub fn find(&self, chain: &str, address: Option<&str>, path: Option<&str>) -> Option<(&AddressEntry, &[u8], KeyId, u32)> {
+        self.books.values().find_map(|(b, bytes)| {
+            b.entries
+                .iter()
+                .find(|e| e.chain == chain && address.is_none_or(|a| same_address(chain, &e.address, a)) && path.is_none_or(|p| e.path == p))
+                .map(|e| (e, bytes.as_slice(), b.key_id, b.key_version))
         })
+    }
+}
+
+/// Address equality: case-insensitive only for EVM hex addresses (base58/bech32 chains are
+/// case-sensitive or canonical lower-case).
+pub fn same_address(chain: &str, a: &str, b: &str) -> bool {
+    if chain.starts_with("evm:") {
+        a.eq_ignore_ascii_case(b)
+    } else {
+        a == b
     }
 }
 
@@ -118,13 +128,7 @@ pub fn verify_proof(trust: &Trust, proof_frame: &[u8], asked: &Asked<'_>, last_b
     if !b.entries.contains(&p.entry) {
         return Err(ProofError::NotInBook);
     }
-    if p.entry.chain != asked.chain
-        || asked.address.is_some_and(|a| !p.entry.address.eq_ignore_ascii_case(a))
-        || asked.path.is_some_and(|x| p.entry.path != x)
-        || (asked.address.is_none() && asked.path.is_none())
-    {
-        return Err(ProofError::WrongEntry);
-    }
+
     // 2
     if b.book_version < last_book {
         return Err(ProofError::OldBook { got: b.book_version, last: last_book });
@@ -148,6 +152,14 @@ pub fn verify_proof(trust: &Trust, proof_frame: &[u8], asked: &Asked<'_>, last_b
         .map_err(|_| ProofError::ProdSig)?;
     if p.nonce != *nonce || p.request_id != asked.request_id {
         return Err(ProofError::ProdSig);
+    }
+    // Only an authenticated answer can raise this alarm: the proof must answer the question.
+    if p.entry.chain != asked.chain
+        || asked.address.is_some_and(|a| !same_address(asked.chain, &p.entry.address, a))
+        || asked.path.is_some_and(|x| p.entry.path != x)
+        || (asked.address.is_none() && asked.path.is_none())
+    {
+        return Err(ProofError::WrongEntry);
     }
     Ok(p.entry)
 }

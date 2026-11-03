@@ -18,3 +18,7 @@ rand = { workspace = true }
 hex = { workspace = true }
 thiserror = { workspace = true }
 zeroize = { workspace = true }
+
+[features]
+# Simulation / test hooks modelling a compromised HOT. Never enable in a release build.
+sim-hooks = []

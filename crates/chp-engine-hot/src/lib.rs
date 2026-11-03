@@ -42,6 +42,8 @@ pub enum Mode {
 pub struct HotConfig {
     pub mode: Mode,
     pub replica: u8,
+    /// The COLD replica this HOT pairs with (security review round 2).
+    pub cold_replica: u8,
     /// Caps a `WakeOpen` must respect.
     pub max_batches_cap: u32,
     pub max_window_secs: u64,
@@ -125,6 +127,12 @@ impl Hot {
     pub fn wake_counter(&self) -> u64 {
         self.enclave.counters.read(WAKE_COUNTER)
     }
+    /// **Simulation only**: a compromised HOT sends an arbitrary frame to COLD on the link.
+    #[cfg(feature = "sim-hooks")]
+    pub fn adversary_send(&mut self, t: MsgType, body: &impl serde::Serialize) {
+        self.send(t, body);
+    }
+
     /// Presign runs in progress?
     pub fn busy(&self) -> bool {
         !self.runs.is_empty()
@@ -162,14 +170,22 @@ impl Hot {
 
     /// COLD dials; HOT answers. HOT accepts a hello only from COLD.
     pub fn on_hello(&mut self, bytes: &[u8], tls: B32, now: u64) -> Result<Vec<u8>, HotError> {
-        let (link, h) = accept_hello(&mut self.trust, Role::Hot, now, bytes, tls, &[Role::Cold], None)
+        // Only a freshly booted, locked HOT takes a hello: no re-hello mid-window.
+        if !matches!(self.wake, Wake::Locked) || self.link.is_some() {
+            return refuse("HOT accepts one hello per boot, before any window");
+        }
+        let my_nonce = B32(rand::random());
+        let (link, h) = accept_hello(&mut self.trust, Role::Hot, now, bytes, tls, &[Role::Cold], None, my_nonce)
             .map_err(|e| HotError::Refused(e.to_string()))?;
+        if link.peer.replica != self.cfg.cold_replica {
+            return refuse("COLD replica not paired with this HOT");
+        }
         self.link = Some(link);
         Ok(make_hello(HelloParams {
             id: &self.enclave.id,
             cert: &self.cert,
             roster_updates: vec![],
-            nonce: B32(rand::random()),
+            nonce: my_nonce,
             peer_nonce: Some(h.nonce),
             keys: self.keyring.all().map(|e| (e.manifest.key_id, e.manifest.key_version)).collect(),
             policy_ver: None, // HOT ignores policy versions
@@ -236,6 +252,11 @@ impl Hot {
                 _ => return refuse("key not active or frozen"),
             }
         }
+        // A Dkg window names the NEW key; presign in it is only for that key once activated, so
+        // the old key's pool can never be refilled without a DKG (security review round 2).
+        if w.return_stage == ReturnStage::Dkg && self.keyring.known(&w.key_id) {
+            return refuse("a Dkg window must name a new key");
+        }
         if w.max_batches > self.cfg.max_batches_cap || w.not_after <= now || w.not_after > now + self.cfg.max_window_secs {
             return refuse("window caps exceeded");
         }
@@ -247,7 +268,17 @@ impl Hot {
         // if HOT's storage is restored while powered off.
         self.enclave.counters.increment(WAKE_COUNTER);
         let digest = wake_digest(&w);
-        self.out.push(Out::Display(format!("HOT wake digest {}", hex::encode(&digest.0[..8]))));
+        // Show the operator what is being approved, not just a digest.
+        self.out.push(Out::Display(format!(
+            "HOT wake window: {:?} key {} v{} · max {} batches · until {} · wake_seq {} · digest {}",
+            w.return_stage,
+            hex::encode(&w.key_id.0[..4]),
+            w.key_version,
+            w.max_batches,
+            w.not_after,
+            w.wake_seq,
+            hex::encode(&digest.0[..8])
+        )));
         self.wake = Wake::Proposed { w, digest };
         Ok(())
     }
@@ -380,8 +411,13 @@ impl Hot {
         if !self.book.path_active(&o.key_id, &o.path) {
             return Some(RefuseReason::PathNotInBook);
         }
-        if o.presig_ids.is_empty() || o.presig_ids.len() > MAX_BATCH || self.used_batches.contains(&o.batch_id) || self.prod_cert.is_none() {
+        if o.presig_ids.is_empty() || o.presig_ids.len() > MAX_BATCH || self.used_batches.contains(&o.batch_id) {
             return Some(RefuseReason::BadBatch);
+        }
+        // PROD's certificate must be usable now, or the export would be dropped later.
+        match &self.prod_cert {
+            Some((c, _)) if now <= c.not_after && !self.trust.is_revoked(&B32(chp_crypto::ident::key_hash(&c.id_pk.0))) => {}
+            _ => return Some(RefuseReason::BadBatch),
         }
         if !o.presig_ids.windows(2).all(|p| p[0] < p[1])
             || o.presig_ids.iter().any(|id| chp_wire::presig_id::replicas(*id).0 != self.cfg.replica)
@@ -444,6 +480,8 @@ impl Hot {
         let Some((prod, _)) = self.prod_cert.clone() else { return };
         if now > prod.not_after || self.trust.is_revoked(&B32(chp_crypto::ident::key_hash(&prod.id_pk.0))) {
             self.events.push(Event::Refused { what: "export".into(), why: "PROD certificate expired or revoked".into() });
+            // tell COLD so it ends the batch now instead of waiting for the import deadline
+            self.send(MsgType::PresignRefuse, &PresignRefuse { batch_id: o.batch_id, reason: RefuseReason::BadBatch });
             return;
         }
         // Plaintext halves are zeroized when this buffer is dropped.

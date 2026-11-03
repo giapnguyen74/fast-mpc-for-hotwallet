@@ -83,7 +83,7 @@ async fn revoking_prod_discards_pools_and_closes_the_link() {
     let mut w = World::setup(Options::default()).await;
     w.refill(PATH, 1).await;
     let prod_pk = w.prod.enclave.id.public();
-    let rl = w.q.sign(MsgType::RevocationList, &RevocationList { version: 1, revoked: vec![B32(key_hash(&prod_pk))] });
+    let rl = w.q.sign(MsgType::RevocationList, &RevocationList { version: 1, revoked: vec![Revoked::party(Role::Prod, B32(key_hash(&prod_pk)))] });
     w.cold.apply_quorum(&rl, w.now).unwrap();
     assert!(w.cold.pool(&w.pool(PATH)).unwrap().halves.is_empty());
     // PROD can never link again
@@ -160,16 +160,32 @@ async fn retired_key_version_cannot_sign_and_nothing_is_deleted() {
 async fn freeze_reaches_hot_and_control_only_window_delivers_unfreeze() {
     let mut w = World::setup(Options::default()).await;
     w.refill(PATH, 1).await;
-    // A fault freezes COLD and PROD; HOT is powered off and learns at its next window.
+    let hot_frozen = |w: &World| w.hot.keyring.get(&w.key_id, 1).unwrap().frozen.is_some();
+    // A fault while a window is open: COLD freezes and tells PROD and HOT.
+    w.hot_boot();
+    let c = w.hot.wake_counter();
+    w.connect_hot();
+    let d = w.cold.open_wake(w.key_id, 1, ReturnStage::PresignSync, 1, w.now + 600, c);
+    w.pump().await;
+    w.hot.operator_confirm_wake(d).unwrap();
+    w.pump().await;
+    w.cold.operator_confirm_wake().unwrap();
+    w.pump().await;
     w.cold.freeze(w.key_id, 1, chp_wire::Fault::FinalVerify, B32([1; 32]), None);
     w.pump().await;
     assert!(w.prod.keyring.get(&w.key_id, 1).unwrap().frozen.is_some());
-    let u = w.unfreeze();
-    // presign is refused while COLD's queue has the Unfreeze for HOT but HOT's key is fine;
-    // a ControlOnly window delivers the quorum files (allowed even while frozen).
-    w.hot.boot();
+    assert!(hot_frozen(&w), "HOT froze on COLD's notice");
+    w.cold.close_wake("fault");
+    w.pump().await;
+    w.hot_off();
+    w.cold.link_lost(Role::Hot);
+    // The quorum's Unfreeze (naming the freeze) reaches COLD and PROD now, HOT at its next window.
+    w.unfreeze();
+    assert!(hot_frozen(&w));
+    w.hot_boot();
     let c = w.hot.wake_counter();
     w.connect_hot();
+    // ControlOnly windows are allowed while frozen.
     let d = w.cold.open_wake(w.key_id, 1, ReturnStage::ControlOnly, 0, w.now + 600, c);
     w.pump().await;
     w.hot.operator_confirm_wake(d).unwrap();
@@ -177,9 +193,8 @@ async fn freeze_reaches_hot_and_control_only_window_delivers_unfreeze() {
     w.cold.operator_confirm_wake().unwrap();
     w.pump().await;
     assert!(w.cold.start_batch(PATH, w.now).is_err(), "ControlOnly windows run no presign");
-    // HOT verified and applied the relayed quorum Unfreeze itself
+    // HOT verified the relayed quorum Unfreeze itself and lifted its freeze
+    assert!(!hot_frozen(&w), "{:?}", w.hot.events);
     let slot = format!("Unfreeze/{}", hex::encode(w.key_id.0));
-    assert_eq!(w.hot.trust.version(&slot), 1, "HOT applied Unfreeze v1");
-    // COLD cannot alter a relayed quorum file: a forged one is refused by HOT
-    let _ = u;
+    assert_eq!(w.hot.trust.version(&slot), 1);
 }

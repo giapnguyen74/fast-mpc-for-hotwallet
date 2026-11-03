@@ -8,7 +8,7 @@ use chp_wire::{
 };
 use serde::Serialize;
 
-use crate::{matrix::may_send, sign_msg, signed_msg_input, trust::Trust, AuthError, Result};
+use crate::{link_msg_input, matrix::may_send, signed_msg_input, trust::Trust, AuthError, Result};
 
 /// An installed link to one peer.
 #[derive(Clone, Debug)]
@@ -17,21 +17,37 @@ pub struct Link {
     pub peer: PartyCert,
     pub peer_signer: B32,
     pub tls_binding: B32,
+    /// Session id `H(dialer_nonce ‖ responder_nonce ‖ tls_binding)`, bound into every frame.
+    pub link_id: [u8; 32],
     recv: [u64; 4],
     send: [u64; 4],
 }
 
 impl Link {
-    fn new(me: Role, peer: PartyCert, tls_binding: B32) -> Self {
+    fn new(me: Role, peer: PartyCert, tls_binding: B32, dialer_nonce: B32, responder_nonce: B32) -> Self {
         let peer_signer = B32(ident::key_hash(&peer.id_pk.0));
-        Link { me, peer, peer_signer, tls_binding, recv: [0; 4], send: [0; 4] }
+        let link_id = chp_crypto::hash::tagged_hash(b"chp-link-id-v1", &[&dialer_nonce.0, &responder_nonce.0, &tls_binding.0]);
+        Link { me, peer, peer_signer, tls_binding, link_id, recv: [0; 4], send: [0; 4] }
     }
 
     /// Build the next signed frame of type `t` on this link.
     pub fn seal<T: Serialize>(&mut self, id: &IdKey, t: MsgType, body: &T) -> Vec<u8> {
+        self.seal_raw(id, t, encode(body))
+    }
+
+    /// Seal an already-encoded body (queued messages).
+    pub fn seal_raw(&mut self, id: &IdKey, t: MsgType, body: Vec<u8>) -> Vec<u8> {
         let s = t.stream().expect("link message").index();
         self.send[s] += 1;
-        encode(&sign_msg(id, t, self.send[s], encode(body)))
+        let seq = self.send[s];
+        let sig = id.sign(&link_msg_input(&self.link_id, t.code(), seq, &body));
+        encode(&SignedMsg {
+            msg_type: t.code(),
+            seq,
+            body: chp_wire::Bytes(body),
+            signer: B32(ident::key_hash(&id.public())),
+            sig: chp_wire::B64(sig),
+        })
     }
 
     /// The 6 checks of SP1 §5, in order, **before advancing any state**. On success the
@@ -64,7 +80,7 @@ impl Link {
             return Err(AuthError::RoleNotAllowed { role: self.peer.role, t, to: self.me });
         }
         // 5. signature
-        ident::verify(&self.peer.id_pk.0, &signed_msg_input(f.msg_type, f.seq, &f.body.0), &f.sig.0)
+        ident::verify(&self.peer.id_pk.0, &link_msg_input(&self.link_id, f.msg_type, f.seq, &f.body.0), &f.sig.0)
             .map_err(|_| AuthError::BadSignature)?;
         // 6. canonical body
         msgs::validate(t, &f.body.0).map_err(AuthError::Body)?;
@@ -124,7 +140,7 @@ pub fn make_hello(p: HelloParams<'_>) -> Vec<u8> {
         revocation_ver: p.revocation_ver,
         tls_binding: p.tls_binding,
     };
-    encode(&sign_msg(p.id, MsgType::LinkHello, 0, encode(&h)))
+    encode(&crate::sign_msg(p.id, MsgType::LinkHello, 0, encode(&h)))
 }
 
 /// Verify a peer's hello (SP1 §4) and install the link.
@@ -134,6 +150,10 @@ pub fn make_hello(p: HelloParams<'_>) -> Vec<u8> {
 /// * signer = H(cert.id_pk), seq 0, signature, canonical body;
 /// * `tls_binding` equals this connection's exporter;
 /// * for the responder's hello, `peer_nonce` echoes our nonce.
+///
+/// `my_nonce` is the nonce in *our* hello (the dialer's, or the one the responder will send);
+/// with the peer's nonce and the TLS binding it gives the link session id.
+#[allow(clippy::too_many_arguments)]
 pub fn accept_hello(
     trust: &mut Trust,
     me: Role,
@@ -142,6 +162,7 @@ pub fn accept_hello(
     my_tls_binding: B32,
     allowed_peers: &[Role],
     expect_peer_nonce: Option<B32>,
+    my_nonce: B32,
 ) -> Result<(Link, LinkHello)> {
     let f: SignedMsg = decode_canonical(bytes).map_err(AuthError::Frame)?;
     if f.msg_type != MsgType::LinkHello.code() || f.seq != 0 {
@@ -168,5 +189,7 @@ pub fn accept_hello(
             return Err(AuthError::Handshake("peer_nonce mismatch".into()));
         }
     }
-    Ok((Link::new(me, cert, my_tls_binding), h))
+    // The dialer checks peer_nonce (expect_peer_nonce = its own nonce); the responder doesn't.
+    let (dialer, responder) = if expect_peer_nonce.is_some() { (my_nonce, h.nonce) } else { (h.nonce, my_nonce) };
+    Ok((Link::new(me, cert, my_tls_binding, dialer, responder), h))
 }

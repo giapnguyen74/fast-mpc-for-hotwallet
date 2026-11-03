@@ -148,5 +148,21 @@ mod tests {
         assert_eq!(rlp::encode(&uint(1024)), vec![0x82, 0x04, 0x00]);
         // non-canonical single byte refused
         assert!(rlp::decode(&[0x81, 0x05]).is_err());
+        // deep nesting is refused, not a stack overflow (security review round 2)
+        let mut bytes = vec![0xc0u8];
+        for _ in 0..20_000 {
+            let l = bytes.len();
+            let mut h = if l < 56 {
+                vec![0xc0 + l as u8]
+            } else {
+                let lb: Vec<u8> = l.to_be_bytes().iter().copied().skip_while(|x| *x == 0).collect();
+                let mut h = vec![0xf7 + lb.len() as u8];
+                h.extend(lb);
+                h
+            };
+            h.extend(bytes);
+            bytes = h;
+        }
+        assert!(rlp::decode(&bytes).is_err());
     }
 }

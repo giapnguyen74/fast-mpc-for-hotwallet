@@ -82,18 +82,28 @@ impl Keyring {
     }
 
     /// The highest non-retired version of a key.
+    /// The highest **Active** version of a key (a pending manifest — public data any host can
+    /// feed — must not stop signing with the current version; security review round 2).
     pub fn current(&self, key_id: &KeyId) -> Option<&KeyEntry> {
-        self.keys.iter().filter(|((k, _), e)| k == key_id && e.state != KeyState::Retired).map(|(_, e)| e).next_back()
+        self.keys.iter().filter(|((k, _), e)| k == key_id && e.state == KeyState::Active).map(|(_, e)| e).next_back()
+    }
+
+    /// Any non-retired version of a key (pending or active), for installing per-key data.
+    pub fn known(&self, key_id: &KeyId) -> bool {
+        self.keys.iter().any(|((k, _), e)| k == key_id && e.state != KeyState::Retired)
     }
 
     pub fn all(&self) -> impl Iterator<Item = &KeyEntry> {
         self.keys.values()
     }
 
+    /// Verify a control object and check the transition **before** consuming its version
+    /// (rule 1: a refusal changes no state).
     fn control(&mut self, trust: &mut Trust, bytes: &[u8], t: MsgType) -> Result<KeyControl, KeyError> {
         let c: KeyControl = trust.verify_quorum(bytes, t)?;
-        if !self.keys.contains_key(&(c.key_id, c.key_version)) {
-            return Err(KeyError::Unknown);
+        let e = self.keys.get(&(c.key_id, c.key_version)).ok_or(KeyError::Unknown)?;
+        if t == MsgType::Activate && e.state == KeyState::Retired {
+            return Err(KeyError::Transition("retired → active"));
         }
         trust.bump_version(&format!("{t:?}/{}", hex::encode(c.key_id.0)), c.version)?;
         Ok(c)
@@ -103,10 +113,8 @@ impl Keyring {
     pub fn apply_activate(&mut self, trust: &mut Trust, bytes: &[u8]) -> Result<KeyControl, KeyError> {
         let c = self.control(trust, bytes, MsgType::Activate)?;
         let e = self.keys.get_mut(&(c.key_id, c.key_version)).unwrap();
-        match e.state {
-            KeyState::ActivePending => e.state = KeyState::Active,
-            KeyState::Active => {}
-            KeyState::Retired => return Err(KeyError::Transition("retired → active")),
+        if e.state == KeyState::ActivePending {
+            e.state = KeyState::Active;
         }
         Ok(c)
     }
@@ -118,12 +126,14 @@ impl Keyring {
         Ok(c)
     }
 
-    /// Quorum `Unfreeze` (SP7 §3). It must name the evidence of the freeze in force, so an
-    /// Unfreeze issued for one incident cannot lift a later freeze.
+    /// Quorum `Unfreeze` (SP7 §3). It must name the evidence of the freeze in force (it may name
+    /// several, for parties that froze on different evidence), so an Unfreeze issued for one
+    /// incident cannot lift a later freeze. Refused, consuming nothing, if the key is not frozen.
     pub fn apply_unfreeze(&mut self, trust: &mut Trust, bytes: &[u8]) -> Result<KeyControl, KeyError> {
         let u: UnfreezeBody = trust.verify_quorum(bytes, MsgType::Unfreeze)?;
         let e = self.keys.get(&(u.key_id, u.key_version)).ok_or(KeyError::Unknown)?;
-        if e.frozen.is_some() && e.freeze_evidence != Some(u.evidence_hash) {
+        let Some(ev) = e.freeze_evidence else { return Err(KeyError::Transition("key is not frozen")) };
+        if !u.evidence.contains(&ev) {
             return Err(KeyError::Transition("Unfreeze names another freeze"));
         }
         trust.bump_version(&format!("Unfreeze/{}", hex::encode(u.key_id.0)), u.version)?;
@@ -146,11 +156,19 @@ impl Keyring {
         }
     }
 
-    /// Freeze every key (fail closed, e.g. after a detected storage restore).
-    pub fn freeze_all(&mut self, fault: Fault, evidence: chp_wire::B32) {
-        let ks: Vec<(KeyId, u32)> = self.keys.keys().copied().collect();
-        for (k, v) in ks {
-            self.freeze(&k, v, fault, evidence);
+    /// Fail closed after a detected storage restore: **overwrite** every key's freeze with this
+    /// fault and evidence, including keys already frozen in the restored state, so no Unfreeze
+    /// minted before the restore can lift it (security review round 2). Returns the keys.
+    pub fn force_freeze_all(&mut self, fault: Fault, evidence: chp_wire::B32) -> Vec<(KeyId, u32)> {
+        let mut out = Vec::new();
+        for ((k, v), e) in self.keys.iter_mut() {
+            if e.state == KeyState::Retired {
+                continue;
+            }
+            e.frozen = Some(fault);
+            e.freeze_evidence = Some(evidence);
+            out.push((*k, *v));
         }
+        out
     }
 }

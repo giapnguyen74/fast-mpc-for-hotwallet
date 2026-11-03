@@ -15,13 +15,24 @@ for crate in chp-engine-prod chp-core chp-crypto chp-auth chp-wire chp-policy ch
   fi
 done
 # Simulation hooks (copy halves, restore storage, forge jobs) must never be compiled into a
-# production build of an engine (security review).
-for crate in chp-engine-prod chp-engine-cold chp-engine-hot chp-crypto; do
-  if cargo tree -p "$crate" -e features --prefix none 2>/dev/null | grep -q 'feature "sim-hooks"'; then
-    echo "FAIL: $crate is built with feature sim-hooks"
-    status=1
-  else
-    echo "ok:   $crate production build has no sim-hooks"
+# production build. Checked on the RESOLVED feature set of normal (non-dev) builds, both per
+# engine and for the whole workspace, failing closed on any cargo error (security review r2).
+hooked=(chp-engine-prod chp-engine-cold chp-engine-hot chp-crypto)
+check_tree() { # $1 = description, rest = cargo tree args
+  local what="$1"; shift
+  local out
+  if ! out=$(cargo tree "$@" -e normal,features --prefix none -f '{p} [{f}]' 2>&1); then
+    echo "FAIL: cargo tree failed for $what"; echo "$out" | tail -3; status=1; return
   fi
+  for c in "${hooked[@]}"; do
+    if echo "$out" | grep -E "^$c v[^ ]+ .*\[[^]]*sim-hooks" >/dev/null; then
+      echo "FAIL: $c is built with feature sim-hooks in $what"; status=1
+    fi
+  done
+}
+for crate in "${hooked[@]}"; do
+  check_tree "$crate" -p "$crate"
 done
+check_tree "the workspace build" --workspace
+[ $status -eq 0 ] && echo "ok:   no production build (per engine or workspace) compiles sim-hooks"
 exit $status

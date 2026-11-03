@@ -71,6 +71,13 @@ impl PolicyState {
         self.ledger.range(now.saturating_sub(DAY - 1)..).map(|(_, v)| *v).fold(0u128, |a, v| a.saturating_add(v))
     }
 
+    /// Give back a reservation made with [`PolicyState::record`] at `when` (not signed).
+    pub fn release(&mut self, d: &Decoded, when: u64) {
+        if let Some(e) = self.ledger.get_mut(&when) {
+            *e = e.saturating_sub(d.value.saturating_add(d.max_fee));
+        }
+    }
+
     /// Record a signed withdrawal (value + max fee) in this party's ledger.
     pub fn record(&mut self, d: &Decoded, now: u64) {
         let e = self.ledger.entry(now).or_insert(0);

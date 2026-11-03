@@ -146,7 +146,7 @@
     "from": "HOT",
     "to": "QUORUM",
     "label": "Y fingerprint",
-    "detail": "d1b2cf848ff2cf36220355f4031a3127",
+    "detail": "e1c8199ce50cd8dc365012c72012d917",
     "cls": "quorum"
   },
   {
@@ -154,7 +154,7 @@
     "from": "COLD",
     "to": "QUORUM",
     "label": "Y fingerprint",
-    "detail": "d1b2cf848ff2cf36220355f4031a3127",
+    "detail": "e1c8199ce50cd8dc365012c72012d917",
     "cls": "quorum"
   },
   {
@@ -162,7 +162,7 @@
     "from": "REC",
     "to": "QUORUM",
     "label": "Y fingerprint",
-    "detail": "d1b2cf848ff2cf36220355f4031a3127",
+    "detail": "e1c8199ce50cd8dc365012c72012d917",
     "cls": "quorum"
   },
   {
@@ -171,7 +171,7 @@
   },
   {
     "kind": "note",
-    "text": "Y fingerprints read aloud: HOT d1b2cf848ff2cf36220355f4031a3127  COLD d1b2cf848ff2cf36220355f4031a3127  REC d1b2cf848ff2cf36220355f4031a3127  → equal"
+    "text": "Y fingerprints read aloud: HOT e1c8199ce50cd8dc365012c72012d917  COLD e1c8199ce50cd8dc365012c72012d917  REC e1c8199ce50cd8dc365012c72012d917  → equal"
   },
   {
     "kind": "note",
@@ -179,7 +179,7 @@
   },
   {
     "kind": "note",
-    "text": "quorum signs KeyManifest{key_id 28bf7695, version 1, Y, public shares}"
+    "text": "quorum signs KeyManifest{key_id 89ca6828, version 1, Y, public shares}"
   },
   {
     "kind": "note",
@@ -330,7 +330,7 @@
   },
   {
     "kind": "note",
-    "text": "hot address for m/hot/0: 0x2383cf77fa67e3f1a118fd23d78f3303e75fb7df"
+    "text": "hot address for m/hot/0: 0xa9e96d6a2acd01c6f8e499bc8956641ed95a89ff"
   },
   {
     "kind": "step",
@@ -402,7 +402,7 @@
   {
     "kind": "event",
     "who": "COLD",
-    "text": "COLD wake digest cdcdf93a307c90da",
+    "text": "COLD wake window: PresignSync key 89ca6828 v1 · max 2 batches · until 1800000600 · wake_seq 2 · digest da19eba152c0dbda",
     "level": "display"
   },
   {
@@ -416,7 +416,7 @@
   {
     "kind": "event",
     "who": "HOT",
-    "text": "HOT wake digest cdcdf93a307c90da",
+    "text": "HOT wake window: PresignSync key 89ca6828 v1 · max 2 batches · until 1800000600 · wake_seq 2 · digest da19eba152c0dbda",
     "level": "display"
   },
   {
@@ -506,7 +506,7 @@
     "from": "HOT",
     "to": "MEDIA",
     "label": "MediaBundle",
-    "detail": "2414 bytes, sealed to PROD",
+    "detail": "2411 bytes, sealed to PROD",
     "cls": "media"
   },
   {
@@ -564,7 +564,7 @@
     "from": "HOT",
     "to": "MEDIA",
     "label": "MediaBundle",
-    "detail": "2411 bytes, sealed to PROD",
+    "detail": "2391 bytes, sealed to PROD",
     "cls": "media"
   },
   {
@@ -669,7 +669,7 @@
   {
     "kind": "event",
     "who": "COLD",
-    "text": "batch ebde63bd → Active",
+    "text": "batch 2aa406b7 → Active",
     "level": "info"
   },
   {
@@ -683,7 +683,7 @@
   {
     "kind": "event",
     "who": "PROD",
-    "text": "batch ebde63bd → Active",
+    "text": "batch 2aa406b7 → Active",
     "level": "info"
   },
   {
@@ -723,7 +723,7 @@
   {
     "kind": "event",
     "who": "COLD",
-    "text": "batch 271a618c → Active",
+    "text": "batch 36cb7f4b → Active",
     "level": "info"
   },
   {
@@ -737,7 +737,7 @@
   {
     "kind": "event",
     "who": "PROD",
-    "text": "batch 271a618c → Active",
+    "text": "batch 36cb7f4b → Active",
     "level": "info"
   },
   {
@@ -769,7 +769,7 @@
   },
   {
     "kind": "note",
-    "text": "UPSTREAM signs WithdrawalEnvelope{request 06aaa556, 1 ETH to the allowlisted address, path m/hot/0, not_after +120s}"
+    "text": "UPSTREAM signs WithdrawalEnvelope{request 892875a9, 1 ETH to the allowlisted address, path m/hot/0, not_after +120s}"
   },
   {
     "kind": "note",
@@ -798,7 +798,7 @@
   {
     "kind": "event",
     "who": "COLD",
-    "text": "signed request 06aaa556 → txid 968ed30c",
+    "text": "signed request 892875a9 → txid 8c80de68",
     "level": "ok"
   },
   {
@@ -814,7 +814,7 @@
     "from": "PROD",
     "to": "CHAIN",
     "label": "broadcast",
-    "detail": "txid 968ed30c",
+    "detail": "txid 8c80de68",
     "cls": "chain"
   },
   {
@@ -849,7 +849,7 @@
   },
   {
     "kind": "note",
-    "text": "signature recovers to 0x2383cf77fa67e3f1a118fd23d78f3303e75fb7df == quorum-signed book address ✔ true"
+    "text": "signature recovers to 0xa9e96d6a2acd01c6f8e499bc8956641ed95a89ff == quorum-signed book address ✔ true"
   },
   {
     "kind": "step",
@@ -882,7 +882,7 @@
   },
   {
     "kind": "note",
-    "text": "requester verifies with the pinned roster only: quorum sigs ✔ address re-derived ✔ control sig by the key ✔ active ✔ → 0x2383cf77fa67e3f1a118fd23d78f3303e75fb7df"
+    "text": "requester verifies with the pinned roster only: quorum sigs ✔ address re-derived ✔ control sig by the key ✔ active ✔ → 0xa9e96d6a2acd01c6f8e499bc8956641ed95a89ff"
   },
   {
     "kind": "step",
@@ -946,7 +946,7 @@
   {
     "kind": "event",
     "who": "PROD",
-    "text": "job 2 → Fault(FinalVerify): final signature does not verify",
+    "text": "job 4294967298 → Fault(FinalVerify): final signature does not verify",
     "level": "info"
   },
   {
@@ -1112,7 +1112,7 @@
   },
   {
     "kind": "note",
-    "text": "UPSTREAM signs WithdrawalEnvelope{request 6b4318db, 2 ETH, path m/hot/0, not_after +120s}"
+    "text": "UPSTREAM signs WithdrawalEnvelope{request ce3d5b47, 2 ETH, path m/hot/0, not_after +120s}"
   },
   {
     "kind": "note",
@@ -1141,7 +1141,7 @@
   {
     "kind": "event",
     "who": "COLD",
-    "text": "signed request 6b4318db → txid 3fa20e5a",
+    "text": "signed request ce3d5b47 → txid 913cf17a",
     "level": "ok"
   },
   {
@@ -1157,7 +1157,7 @@
     "from": "PROD",
     "to": "CHAIN",
     "label": "broadcast",
-    "detail": "txid 3fa20e5a",
+    "detail": "txid 913cf17a",
     "cls": "chain"
   },
   {
@@ -1379,7 +1379,7 @@
   {
     "kind": "event",
     "who": "COLD",
-    "text": "COLD wake digest d8a226ba296d8065",
+    "text": "COLD wake window: PresignSync key 89ca6828 v1 · max 1 batches · until 1800000600 · wake_seq 3 · digest 1e42fbf0ecad3c1c",
     "level": "display"
   },
   {
@@ -1393,7 +1393,7 @@
   {
     "kind": "event",
     "who": "HOT",
-    "text": "HOT wake digest d8a226ba296d8065",
+    "text": "HOT wake window: PresignSync key 89ca6828 v1 · max 1 batches · until 1800000600 · wake_seq 3 · digest 1e42fbf0ecad3c1c",
     "level": "display"
   },
   {
@@ -1471,14 +1471,8 @@
   {
     "kind": "event",
     "who": "HOT",
-    "text": "unfroze the key (quorum Unfreeze verified)",
-    "level": "ok"
-  },
-  {
-    "kind": "event",
-    "who": "HOT",
-    "text": "verified quorum signatures and applied Unfreeze",
-    "level": "info"
+    "text": "refused QuorumFile: refused: illegal transition key is not frozen",
+    "level": "warn"
   },
   {
     "kind": "event",
@@ -1531,7 +1525,7 @@
     "from": "HOT",
     "to": "MEDIA",
     "label": "MediaBundle",
-    "detail": "2414 bytes, sealed to PROD",
+    "detail": "2408 bytes, sealed to PROD",
     "cls": "media"
   },
   {
@@ -1631,7 +1625,7 @@
   {
     "kind": "event",
     "who": "COLD",
-    "text": "batch 1359dfa9 → Active",
+    "text": "batch 13937491 → Active",
     "level": "info"
   },
   {
@@ -1645,7 +1639,7 @@
   {
     "kind": "event",
     "who": "PROD",
-    "text": "batch 1359dfa9 → Active",
+    "text": "batch 13937491 → Active",
     "level": "info"
   },
   {
@@ -1668,7 +1662,7 @@
   },
   {
     "kind": "note",
-    "text": "UPSTREAM signs WithdrawalEnvelope{request d876160d, 1 ETH via the new PROD, path m/hot/0, not_after +120s}"
+    "text": "UPSTREAM signs WithdrawalEnvelope{request 097c3070, 1 ETH via the new PROD, path m/hot/0, not_after +120s}"
   },
   {
     "kind": "note",
@@ -1697,7 +1691,7 @@
   {
     "kind": "event",
     "who": "COLD",
-    "text": "signed request d876160d → txid 27fdcaf0",
+    "text": "signed request 097c3070 → txid e934332b",
     "level": "ok"
   },
   {
@@ -1713,7 +1707,7 @@
     "from": "PROD",
     "to": "CHAIN",
     "label": "broadcast",
-    "detail": "txid 27fdcaf0",
+    "detail": "txid e934332b",
     "cls": "chain"
   },
   {
@@ -1732,7 +1726,7 @@
   },
   {
     "kind": "note",
-    "text": "Status = Signed for the new PROD's job_seq 1 (COLD keys jobs by PROD identity + job_seq)"
+    "text": "Status = Signed for the new PROD's job_seq 4294967297 (COLD keys jobs by PROD identity + job_seq)"
   },
   {
     "kind": "note",
@@ -1781,7 +1775,7 @@
   },
   {
     "kind": "note",
-    "text": "auditor asks about 0x3c4bc3f3586fb311f5ee8e7dddff3d82dd177404 → proof verifies offline: true"
+    "text": "auditor asks about 0x79d61e23fa4408c44caad6c5f0e03ab72f154810 → proof verifies offline: true"
   },
   {
     "kind": "msg",
@@ -1835,15 +1829,15 @@
   },
   {
     "kind": "note",
-    "text": "  txid 968ed30cfc54a66f  from 0x2383cf77fa67e3f1a118fd23d78f3303e75fb7df"
+    "text": "  txid 8c80de6851724a7a  from 0xa9e96d6a2acd01c6f8e499bc8956641ed95a89ff"
   },
   {
     "kind": "note",
-    "text": "  txid 3fa20e5a0c1624e9  from 0x2383cf77fa67e3f1a118fd23d78f3303e75fb7df"
+    "text": "  txid 913cf17a832c9be2  from 0xa9e96d6a2acd01c6f8e499bc8956641ed95a89ff"
   },
   {
     "kind": "note",
-    "text": "  txid 27fdcaf00ed0b466  from 0x2383cf77fa67e3f1a118fd23d78f3303e75fb7df"
+    "text": "  txid e934332b11e2b36d  from 0xa9e96d6a2acd01c6f8e499bc8956641ed95a89ff"
   },
   {
     "kind": "note",

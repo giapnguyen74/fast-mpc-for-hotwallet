@@ -27,6 +27,7 @@ pub struct Trust {
     releases: BTreeSet<B32>,
     rosters: BTreeMap<QuorumRole, Roster>,
     revoked: BTreeSet<B32>,
+    /// Role of each revoked key (as named by the quorum).
     revocation_ver: u64,
     versions: BTreeMap<String, u64>,
 }
@@ -153,15 +154,15 @@ impl Trust {
         Ok(true)
     }
 
-    /// Apply a quorum `RevocationList` (SP1 §8). Returns the newly revoked key hashes.
-    pub fn apply_revocation(&mut self, bytes: &[u8]) -> Result<Vec<B32>> {
+    /// Apply a quorum `RevocationList` (SP1 §8). Returns the newly revoked entries.
+    pub fn apply_revocation(&mut self, bytes: &[u8]) -> Result<Vec<chp_wire::msgs::Revoked>> {
         let rl: RevocationList = self.verify_quorum(bytes, MsgType::RevocationList)?;
         if rl.version <= self.revocation_ver {
             return Err(AuthError::Rollback { got: rl.version, last: self.revocation_ver });
         }
         self.revocation_ver = rl.version;
-        let new: Vec<B32> = rl.revoked.iter().filter(|k| !self.revoked.contains(k)).copied().collect();
-        self.revoked.extend(rl.revoked.iter().copied());
+        let new: Vec<_> = rl.revoked.iter().filter(|k| !self.revoked.contains(&k.key_hash)).cloned().collect();
+        self.revoked.extend(rl.revoked.iter().map(|r| r.key_hash));
         Ok(new)
     }
 

@@ -327,7 +327,7 @@ Rust workspace (see [`docs/PLAN.md`](docs/PLAN.md)):
 ./scripts/web-demo.sh                 # animated web demo of a real run → http://127.0.0.1:14080
 cargo run -p chp-sim --example demo   # narrated run of every flow above, every message printed
 cargo run --release -p chp-sim --example bench   # timings (see docs/BENCHMARKS.md)
-cargo test --workspace                # 111 tests: crypto validation, SP1, engines, end-to-end, adversarial, security regressions
+cargo test --workspace                # 122 tests: crypto validation, SP1, engines, end-to-end, adversarial, security regressions
 ./scripts/check-capabilities.sh       # PROD has no MPC code path; no simulation hooks in production builds
 ```
 
@@ -347,10 +347,12 @@ License. Commercial use of it is the user's own responsibility. See
 
 ## Security
 
-An internal security review (three independent reviewers plus `cargo audit`) found 2 high, 10
-medium and 14 low issues. All 26 are fixed, each with a regression test where practical; a few
-items are accepted as open for the prototype. A compromised PROD could not get an unauthorised
-signature, reuse a presignature or extract COLD's secrets. See [`docs/SECURITY.md`](docs/SECURITY.md).
+Two rounds of internal security review (five independent reviewers plus `cargo audit`). Round 1
+found 26 issues (2 high, 10 medium, 14 low); round 2 re-audited those fixes and covered new
+attacker scenarios (compromised HOT or UPSTREAM, malicious COLD host, network, colluding pairs)
+and found 23 more (2 high, 8 medium, the rest low). All are fixed with regression tests, the most
+important mutation-checked. No scenario produced a signature without a valid UPSTREAM request,
+reused a presignature or extracted COLD's share. See [`docs/SECURITY.md`](docs/SECURITY.md).
 
 > [!WARNING]
 > **Known open advisory: [RUSTSEC-2026-0387](https://rustsec.org/advisories/RUSTSEC-2026-0387.html)**,

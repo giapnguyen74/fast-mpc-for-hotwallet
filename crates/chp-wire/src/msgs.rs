@@ -35,11 +35,39 @@ pub struct Roster {
     pub threshold: u8,
 }
 
-/// `RevocationList` (DESIGN SP1 §8): `SHA-256(id_pk)` of revoked keys.
+/// Who a revoked key belonged to (security review round 2: a bare hash cannot tell an
+/// unlinked HOT/COLD/PROD from a requester or custodian, which forced over-broad discards).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RevokedRole {
+    Party(Role),
+    Custodian,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Revoked {
+    /// `SHA-256(id_pk)` (or of the custodian key).
+    pub key_hash: B32,
+    pub role: RevokedRole,
+}
+
+impl Revoked {
+    pub fn party(role: Role, key_hash: B32) -> Self {
+        Revoked { key_hash, role: RevokedRole::Party(role) }
+    }
+    pub fn custodian(key_hash: B32) -> Self {
+        Revoked { key_hash, role: RevokedRole::Custodian }
+    }
+    /// Revoking HOT, COLD or PROD discards every presignature pool (DESIGN SP1 §8).
+    pub fn is_share_side(&self) -> bool {
+        matches!(self.role, RevokedRole::Party(Role::Hot | Role::Cold | Role::Prod))
+    }
+}
+
+/// `RevocationList` (DESIGN SP1 §8).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RevocationList {
     pub version: u64,
-    pub revoked: Vec<B32>,
+    pub revoked: Vec<Revoked>,
 }
 
 /// `LinkHello` (DESIGN SP1 §4).
@@ -143,7 +171,8 @@ pub struct UnfreezeBody {
     pub key_id: KeyId,
     pub key_version: u32,
     pub version: u64,
-    pub evidence_hash: B32,
+    /// The freezes this Unfreeze lifts (parties may hold different evidence for one incident).
+    pub evidence: Vec<B32>,
 }
 
 // ---------------------------------------------------------------- SP4 wake + presign -------
@@ -370,6 +399,9 @@ pub struct PoolStatus {
     pub pool: PoolId,
     pub available: Vec<PresigId>,
     pub high_water: PresigId,
+    /// Batches PROD holds as Active: COLD reconciles only those (a status crossing a
+    /// PresignActivate in flight must not delete the new batch).
+    pub active_batches: Vec<B32>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

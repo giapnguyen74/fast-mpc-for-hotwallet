@@ -9,14 +9,14 @@ description = "In-process CHP simulator: all parties, operators, media, chain, a
 [dependencies]
 chp-wire = { workspace = true }
 chp-auth = { workspace = true }
-chp-crypto = { workspace = true, features = ["sim-hooks"] }
+chp-crypto = { workspace = true }
 chp-tee = { workspace = true }
 chp-core = { workspace = true }
 chp-chain = { workspace = true }
 chp-ceremony = { workspace = true }
 chp-engine-hot = { workspace = true }
-chp-engine-cold = { workspace = true, features = ["sim-hooks"] }
-chp-engine-prod = { workspace = true, features = ["sim-hooks"] }
+chp-engine-cold = { workspace = true }
+chp-engine-prod = { workspace = true }
 k256 = { workspace = true }
 rand = { workspace = true }
 hex = { workspace = true }
@@ -25,6 +25,13 @@ serde_json = "1"
 tokio = { workspace = true, features = ["time"] }
 
 [dev-dependencies]
+# Simulation hooks (breach models) are enabled ONLY for tests/examples: the resolver does not
+# unify dev-dependency features into normal builds, so `cargo build --workspace [--release]`
+# never compiles them into the engines (security review round 2).
+chp-crypto = { workspace = true, features = ["sim-hooks"] }
+chp-engine-hot = { workspace = true, features = ["sim-hooks"] }
+chp-engine-cold = { workspace = true, features = ["sim-hooks"] }
+chp-engine-prod = { workspace = true, features = ["sim-hooks"] }
 chp-mpc = { workspace = true }
 chp-frost = { path = "../chp-frost" }
 frost-secp256k1-tr = { workspace = true }

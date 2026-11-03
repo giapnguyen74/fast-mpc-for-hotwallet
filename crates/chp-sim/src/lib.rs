@@ -192,7 +192,7 @@ impl World {
             trace::msg("QUORUM", "UPSTREAM", "PartyCert", "client: withdrawal service", "quorum");
             trace::msg("QUORUM", "REQUESTER", "PartyCert", "client: deposit service", "quorum");
         }
-        let mut hot = Hot::new(HotConfig { mode: o.mode, replica: 0, max_batches_cap: 16, max_window_secs: 3600 }, he, &pinned);
+        let mut hot = Hot::new(HotConfig { mode: o.mode, replica: 0, cold_replica: 0, max_batches_cap: 16, max_window_secs: 3600 }, he, &pinned);
         let mut cold = Cold::new(ColdConfig { batch_size: o.batch_size, ..Default::default() }, ce, &pinned);
         let mut prod = Prod::new(pe, &pinned, 0);
         hot.set_cert(hot_cert.clone());
@@ -517,7 +517,7 @@ impl World {
     pub fn revoke_prod(&mut self) -> Vec<u8> {
         self.revocation_ver += 1;
         let h = B32(chp_crypto::ident::key_hash(&self.prod.enclave.id.public()));
-        let rl = self.q.sign(MsgType::RevocationList, &RevocationList { version: self.revocation_ver, revoked: vec![h] });
+        let rl = self.q.sign(MsgType::RevocationList, &RevocationList { version: self.revocation_ver, revoked: vec![Revoked::party(Role::Prod, h)] });
         self.cold.apply_quorum(&rl, self.now).expect("COLD applies revocation");
         self.last_revocation = Some(rl.clone());
         trace::msg("QUORUM", "COLD", "RevocationList", "v1: SHA-256(PROD id_pk)", "quorum");
@@ -639,10 +639,20 @@ impl World {
     /// freeze in force at COLD (the same evidence travelled in the FreezeNotice).
     pub fn unfreeze(&mut self) -> Vec<u8> {
         self.unfreeze_ver += 1;
-        let evidence_hash = self.cold.st.keyring.get(&self.key_id, 1).and_then(|e| e.freeze_evidence).unwrap_or_default();
-        let u = self.q.ceremony.sign(self.q.m, MsgType::Unfreeze, &UnfreezeBody { key_id: self.key_id, key_version: 1, version: self.unfreeze_ver, evidence_hash });
-        self.cold.apply_quorum(&u, self.now).unwrap();
-        self.prod.apply_quorum(&u, self.now).unwrap();
+        // The quorum names every freeze it lifts (COLD's and PROD's evidence; the operators
+        // read them from the parties' freeze events / notices).
+        let mut evidence: Vec<B32> = Vec::new();
+        for e in [self.cold.st.keyring.get(&self.key_id, 1), self.prod.keyring.get(&self.key_id, 1)].into_iter().flatten() {
+            if let Some(ev) = e.freeze_evidence {
+                if !evidence.contains(&ev) {
+                    evidence.push(ev);
+                }
+            }
+        }
+        let u = self.q.ceremony.sign(self.q.m, MsgType::Unfreeze, &UnfreezeBody { key_id: self.key_id, key_version: 1, version: self.unfreeze_ver, evidence });
+        // Parties that are not frozen refuse an Unfreeze (no version consumed).
+        let _ = self.cold.apply_quorum(&u, self.now);
+        let _ = self.prod.apply_quorum(&u, self.now);
         u
     }
 
