@@ -17,9 +17,10 @@ pub fn half_from_presign(p: &PreSign) -> EcdsaHalf {
     EcdsaHalf::from_parts(p.final_session_id, *p.chp_big_r(), *p.chp_public_key(), *p.chp_phi(), *p.chp_s0(), *p.chp_s1())
 }
 
-/// Serialise a key share (for sealing inside the simulated enclave or an HPKE package).
-pub fn share_to_bytes(k: &Keyshare) -> Vec<u8> {
-    k.as_slice().to_vec()
+/// Serialise a key share (for sealing inside the simulated enclave or an HPKE package). The
+/// buffer is zeroized when dropped (the library's `Keyshare` itself is `ZeroizeOnDrop`).
+pub fn share_to_bytes(k: &Keyshare) -> zeroize::Zeroizing<Vec<u8>> {
+    zeroize::Zeroizing::new(k.as_slice().to_vec())
 }
 
 /// Parse a key share.

@@ -40,6 +40,8 @@ async fn storage_restore_is_detected_and_old_halves_never_sign_again() {
     assert!(w.cold.pool(&pool).unwrap().halves.contains_key(&used), "restored state holds the used half again");
     w.cold.boot();
     assert!(w.cold.events.iter().any(|e| matches!(e, Event::PoolDiscarded { reason, .. } if reason.contains("restore"))));
+    // the withdrawal advanced COLD's state counter, so the restore fails closed (security S2)
+    assert_eq!(w.cold.st.keyring.get(&w.key_id, 1).unwrap().frozen, Some(chp_wire::Fault::Rollback));
     assert!(w.cold.pool(&pool).unwrap().halves.is_empty(), "pool discarded");
     w.prod.link_lost();
     w.connect_prod();
@@ -68,7 +70,9 @@ async fn storage_restore_is_detected_and_old_halves_never_sign_again() {
     assert!(st.reason.contains("floor") || st.reason.contains("closed"), "{}", st.reason);
     let n_signed = w.cold.events.iter().filter(|e| matches!(e, Event::Signed { .. })).count();
     assert_eq!(n_signed, 1, "the restored half never signs again");
-    // The pool itself keeps working above the floor after a refill.
+    // After investigation the quorum unfreezes (naming the rollback event); the pool keeps
+    // working above the floor after a refill.
+    w.unfreeze();
     w.refill(PATH, 1).await;
     let j = w.withdraw(DEST, 1, PATH).await.unwrap();
     assert_eq!(w.status_of(j).unwrap().outcome, Outcome::Signed);

@@ -152,3 +152,83 @@ async fn test_hooks_events_do_not_leak_secrets() {
     assert!(dbg.contains("redacted"), "{dbg}");
     let _ = Event::Info(String::new());
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn hot_refuses_presign_for_a_key_outside_the_agreed_window() {
+    let mut w = World::setup(Options::default()).await;
+    w.hot_boot();
+    let c = w.hot.wake_counter();
+    w.connect_hot();
+    let d = w.cold.open_wake(w.key_id, 1, ReturnStage::PresignSync, 2, w.now + 600, c);
+    w.pump().await;
+    w.hot.operator_confirm_wake(d).unwrap();
+    w.pump().await;
+    w.cold.operator_confirm_wake().unwrap();
+    w.pump().await;
+    // A compromised COLD asks HOT to presign for another key version / another key.
+    for (key_id, kv) in [(w.key_id, 2u32), (B32([9; 32]), 1u32)] {
+        let open = PresignOpen {
+            batch_id: B32(rand::random()),
+            key_id,
+            key_version: kv,
+            protocol: chp_wire::Protocol::Dkls23Secp256k1,
+            presig_ids: vec![presig_id::make(0, 0, 500, 0)],
+            path: PATH.into(),
+            import_deadline: w.now + 100,
+        };
+        w.cold.adversary_send_to_hot(MsgType::PresignOpen, &open);
+        w.pump().await;
+    }
+    let refusals = w.cold.events.iter().filter(|e| matches!(e, Event::Info(s) if s.contains("presign refused: VersionMismatch"))).count();
+    assert_eq!(refusals, 2, "{:?}", w.cold.events);
+    assert!(w.media.is_empty(), "nothing exported");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn prod_discards_halves_when_a_disconnected_cold_is_revoked() {
+    let mut w = World::setup(Options::default()).await;
+    w.refill(PATH, 1).await;
+    assert_eq!(w.prod.available(&w.pool(PATH)), 4);
+    // the suspect COLD is disconnected when the quorum revokes it
+    w.prod.link_lost();
+    let cold_hash = B32(chp_crypto::ident::key_hash(&w.cold.enclave.id.public()));
+    let rl = w.q.sign(MsgType::RevocationList, &RevocationList { version: 1, revoked: vec![cold_hash] });
+    w.prod.apply_quorum(&rl, w.now).unwrap();
+    assert_eq!(w.prod.available(&w.pool(PATH)), 0, "PROD's key-equivalent halves are gone");
+    assert!(w.prod.held_ids(&w.pool(PATH)).is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn expired_client_certificates_stop_working() {
+    let mut w = World::setup(Options::default()).await;
+    w.refill(PATH, 1).await;
+    w.advance(91 * 86_400); // past every 90-day certificate
+    let raw = w.tx(DEST, 1);
+    let (_, env) = w.envelope(raw, PATH);
+    let err = w.prod.withdraw(&env, w.now).unwrap_err();
+    assert!(err.to_string().contains("validity window"), "{err}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn rolling_back_the_ledger_is_detected() {
+    let mut w = World::setup(Options::default()).await;
+    w.refill(PATH, 2).await;
+    let snap = w.cold.snapshot();
+    // a withdrawal updates COLD's ledger and replay cache (and advances the state counter)
+    let j = w.withdraw(DEST, 1, PATH).await.unwrap();
+    assert_eq!(w.status_of(j).unwrap().outcome, Outcome::Signed);
+    // restoring the pre-withdrawal storage (fresh daily limit, request forgotten) …
+    w.cold.restore_storage(&snap);
+    w.cold.boot();
+    // … is detected: COLD fails closed
+    assert_eq!(frozen(&w), Some(Fault::Rollback));
+}
+
+#[test]
+fn frost_secrets_are_redacted_in_debug() {
+    let mut rng = rand::thread_rng();
+    let (n, _) = chp_frost::secp::presign_nonces(&mut rng);
+    assert_eq!(format!("{n:?}"), "SecretNonces(<redacted>)");
+    let (n, _) = chp_frost::ed25519::presign_nonces(&mut rng);
+    assert_eq!(format!("{n:?}"), "SecretNonces(<redacted>)");
+}

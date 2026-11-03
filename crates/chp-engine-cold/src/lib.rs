@@ -222,6 +222,12 @@ impl Cold {
         self.st = ciborium::from_reader(snap).expect("snapshot");
     }
 
+    /// **Simulation only**: a compromised COLD sends an arbitrary frame to HOT on the link.
+    #[cfg(feature = "sim-hooks")]
+    pub fn adversary_send_to_hot(&mut self, t: MsgType, body: &impl Serialize) {
+        self.send(Role::Hot, t, body);
+    }
+
     /// Advance the `state` hardware counter after a control-state change, and seal its value.
     /// A storage restore to any earlier control state is then detected at the next boot.
     fn bump_state(&mut self) {
@@ -758,6 +764,10 @@ impl Cold {
         match self.reverify(&job, &env, now) {
             Err((o, why)) => self.status(job.job_seq, job_hash, env.request_id, o, &why, None),
             Ok((decoded, ms)) => {
+                // The replay cache (and, below, the ledger) changed: advance the state counter
+                // so a storage restore can never roll them back unnoticed. One hardware
+                // increment per accepted job (security review S2).
+                self.bump_state();
                 // 5 own policy
                 let verdict = self.st.policy.get(&env.key_id).map(|p| p.evaluate(&decoded, now)).unwrap_or(Verdict::Reject("no policy for this key".into()));
                 if let Verdict::Reject(why) = verdict {
