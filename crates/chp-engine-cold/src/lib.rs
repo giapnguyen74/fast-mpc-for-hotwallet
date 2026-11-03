@@ -898,11 +898,14 @@ impl Cold {
         if job.prod_time.abs_diff(env.upstream_time) > self.cfg.max_time_skew {
             return rej("time sources disagree");
         }
-        // Time is the two signed request times (which must agree, above); COLD's local clock is
-        // only a floor (DESIGN §9.3). A request dated ahead of COLD's clock is therefore NOT
-        // refused: a slow or air-gapped COLD clock must not block legitimate withdrawals.
-        // Replay safety does not depend on dating (see `ReplayCache`).
+        // Refuse signed times in the future: neither UPSTREAM's nor PROD's signed time may be
+        // more than `max_time_skew` ahead of COLD's own clock (deployer-tunable for drifting,
+        // air-gapped clocks). `not_after` is bounded through `upstream_time` below. Replay safety
+        // does not rely on this check either (see `ReplayCache`).
         let skew = self.cfg.max_time_skew;
+        if env.upstream_time > cold_now.saturating_add(skew) || job.prod_time > cold_now.saturating_add(skew) {
+            return rej("signed time is in the future");
+        }
         let t_now = cold_now.max(job.prod_time);
         if env.not_after < env.upstream_time || env.not_after - env.upstream_time > self.cfg.max_request_window {
             return rej("validity window too long");

@@ -81,36 +81,46 @@ fn dated_envelope(w: &World, raw: Vec<u8>, upstream_time: u64) -> Vec<u8> {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn r2_a_future_dated_envelope_is_signed_at_most_once() {
-    // Not refused for being ahead of COLD's clock (DESIGN §9.3: the signed times are the time),
-    // and never signed twice: the replay cache keeps it until not_after + skew and is pruned
-    // only by COLD's authenticated floor.
+async fn r2_cold_rejects_signed_times_in_the_future() {
     let mut w = World::setup(Options::default()).await;
     w.refill(PATH, 2).await;
     let raw = w.tx(DEST, 1);
+    // UPSTREAM-signed time 1000 s ahead (PROD refuses it at admission; a compromised PROD
+    // forwards it anyway)
     let ahead = w.now + 1000;
     let env = dated_envelope(&w, raw.clone(), ahead);
-    let (job, frags) = forged_job(&mut w, env.clone(), &raw, ahead);
-    let first = job.job_seq;
+    assert!(w.prod.withdraw(&env, w.now).is_err());
+    let (job, frags) = forged_job(&mut w, env, &raw, ahead);
+    let s1 = job.job_seq;
     w.prod.adversary_send_job(job, &frags);
     w.pump().await;
-    assert_eq!(w.status_of(first).unwrap().outcome, Outcome::Signed, "{}", w.status_of(first).unwrap().reason);
-    // later genuine jobs move the floor; then the same envelope again, several times
-    for _ in 0..3 {
-        w.advance(200);
-        let j = w.withdraw(DEST, 1, PATH).await.unwrap();
-        assert_eq!(w.status_of(j).unwrap().outcome, Outcome::Signed);
-        let (job, frags) = forged_job(&mut w, env.clone(), &raw, ahead);
-        let seq = job.job_seq;
-        w.prod.adversary_send_job(job, &frags);
-        w.pump().await;
-        let st = w.status_of(seq).unwrap();
-        assert_ne!(st.outcome, Outcome::Signed, "signed twice: {}", st.reason);
-    }
+    let st = w.status_of(s1).unwrap();
+    assert_eq!(st.outcome, Outcome::Rejected);
+    assert!(st.reason.contains("future"), "{}", st.reason);
+    // PROD-signed time in the future (UPSTREAM's time honest)
+    let raw = w.tx(DEST, 1);
+    let (_, env) = w.envelope(raw.clone(), PATH);
+    let t = w.now + 1000;
+    let (job, frags) = forged_job(&mut w, env, &raw, t);
+    let s2 = job.job_seq;
+    w.prod.adversary_send_job(job, &frags);
+    w.pump().await;
+    let st = w.status_of(s2).unwrap();
+    assert_eq!(st.outcome, Outcome::Rejected);
+    assert!(st.reason.contains("future") || st.reason.contains("disagree"), "{}", st.reason);
+    // within the tolerance (60 s ahead) is accepted
+    let raw = w.tx(DEST, 1);
+    let env = dated_envelope(&w, raw.clone(), w.now + 60);
+    let t = w.now + 60;
+    let (job, frags) = forged_job(&mut w, env, &raw, t);
+    let s3 = job.job_seq;
+    w.prod.adversary_send_job(job, &frags);
+    w.pump().await;
+    assert_eq!(w.status_of(s3).unwrap().outcome, Outcome::Signed, "{}", w.status_of(s3).unwrap().reason);
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn r2b_a_slow_cold_clock_does_not_block_withdrawals() {
+async fn r2b_cold_clock_drift_within_tolerance_still_signs() {
     let mut w = World::setup(Options::default()).await;
     w.advance(3600);
     w.refill(PATH, 1).await;
@@ -119,11 +129,30 @@ async fn r2b_a_slow_cold_clock_does_not_block_withdrawals() {
         let raw = w.tx(DEST, 1);
         let (_, env) = w.envelope(raw, PATH);
         w.prod.withdraw(&env, w.now).unwrap();
-        let slow = w.now - 600; // COLD's clock runs 10 minutes slow
+        let slow = w.now - 90; // COLD's clock 90 s slow: inside the 120 s tolerance
         signed += shuttle(&mut w, slow);
         w.advance(5);
     }
-    assert_eq!(signed, 3, "{:?}", w.cold.events.iter().rev().take(3).collect::<Vec<_>>());
+    assert_eq!(signed, 3);
+    // Once COLD has seen authenticated time, its floor keeps it there: a host clock that then
+    // drops 10 minutes does not make honest requests look future-dated.
+    let raw = w.tx(DEST, 1);
+    let (_, env) = w.envelope(raw, PATH);
+    w.prod.withdraw(&env, w.now).unwrap();
+    let slow = w.now - 600;
+    assert_eq!(shuttle(&mut w, slow), 1);
+
+    // A COLD whose clock is 10 minutes slow from the start (no authenticated time seen yet)
+    // refuses: outside the tolerance (the deployer fixes the clock or widens the tolerance).
+    let mut w = World::setup(Options::default()).await;
+    w.advance(3600);
+    w.refill(PATH, 1).await;
+    let raw = w.tx(DEST, 1);
+    let (_, env) = w.envelope(raw, PATH);
+    let j = w.prod.withdraw(&env, w.now).unwrap();
+    let slow = w.now - 600;
+    assert_eq!(shuttle(&mut w, slow), 0);
+    assert!(w.status_of(j).unwrap().reason.contains("future"));
 }
 
 #[tokio::test(flavor = "multi_thread")]
