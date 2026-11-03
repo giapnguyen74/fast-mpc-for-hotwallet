@@ -60,3 +60,4 @@ Design-level changes the prototype adopted:
 | E5 | SP4 PresignOpen checks | HOT also checks that the key/version equal the agreed wake window's |
 | E6 | Revocation by `SHA-256(id_pk)` | Include the role (B6/B12 again): parties cannot tell an unlinked HOT/COLD/PROD key from others |
 | E7 | Certificates short-lived | Re-check validity at every use, not only at handshake/enrollment |
+| E8 | SP7: a freeze stops signing; `Unfreeze` lifts it | A freeze **ends every presignature of the key** on COLD and PROD (pools discarded, in-flight batches aborted), and the Unfreeze repeats it as a backstop: signing resumes only with **new batches** from a fresh wake window. Halves a compromised PROD copied during the incident can then never be completed, even if COLD is breached later. Key shares are not touched: rotating them does not answer a freeze (PROD holds none; a suspect share holder needs a sweep and a new key, SP8 §4) |

@@ -146,7 +146,7 @@
     "from": "HOT",
     "to": "QUORUM",
     "label": "Y fingerprint",
-    "detail": "e1c8199ce50cd8dc365012c72012d917",
+    "detail": "f44e18ac5b3329385aaa315e72a7c0e7",
     "cls": "quorum"
   },
   {
@@ -154,7 +154,7 @@
     "from": "COLD",
     "to": "QUORUM",
     "label": "Y fingerprint",
-    "detail": "e1c8199ce50cd8dc365012c72012d917",
+    "detail": "f44e18ac5b3329385aaa315e72a7c0e7",
     "cls": "quorum"
   },
   {
@@ -162,7 +162,7 @@
     "from": "REC",
     "to": "QUORUM",
     "label": "Y fingerprint",
-    "detail": "e1c8199ce50cd8dc365012c72012d917",
+    "detail": "f44e18ac5b3329385aaa315e72a7c0e7",
     "cls": "quorum"
   },
   {
@@ -171,7 +171,7 @@
   },
   {
     "kind": "note",
-    "text": "Y fingerprints read aloud: HOT e1c8199ce50cd8dc365012c72012d917  COLD e1c8199ce50cd8dc365012c72012d917  REC e1c8199ce50cd8dc365012c72012d917  → equal"
+    "text": "Y fingerprints read aloud: HOT f44e18ac5b3329385aaa315e72a7c0e7  COLD f44e18ac5b3329385aaa315e72a7c0e7  REC f44e18ac5b3329385aaa315e72a7c0e7  → equal"
   },
   {
     "kind": "note",
@@ -179,7 +179,7 @@
   },
   {
     "kind": "note",
-    "text": "quorum signs KeyManifest{key_id 89ca6828, version 1, Y, public shares}"
+    "text": "quorum signs KeyManifest{key_id ce7d2535, version 1, Y, public shares}"
   },
   {
     "kind": "note",
@@ -330,7 +330,7 @@
   },
   {
     "kind": "note",
-    "text": "hot address for m/hot/0: 0xa9e96d6a2acd01c6f8e499bc8956641ed95a89ff"
+    "text": "hot address for m/hot/0: 0x61dcd94468fde7d3288792535772175e0c275ea8"
   },
   {
     "kind": "step",
@@ -402,7 +402,7 @@
   {
     "kind": "event",
     "who": "COLD",
-    "text": "COLD wake window: PresignSync key 89ca6828 v1 · max 2 batches · until 1800000600 · wake_seq 2 · digest da19eba152c0dbda",
+    "text": "COLD wake window: PresignSync key ce7d2535 v1 · max 2 batches · until 1800000600 · wake_seq 2 · digest 411e85a5c3b43738",
     "level": "display"
   },
   {
@@ -416,7 +416,7 @@
   {
     "kind": "event",
     "who": "HOT",
-    "text": "HOT wake window: PresignSync key 89ca6828 v1 · max 2 batches · until 1800000600 · wake_seq 2 · digest da19eba152c0dbda",
+    "text": "HOT wake window: PresignSync key ce7d2535 v1 · max 2 batches · until 1800000600 · wake_seq 2 · digest 411e85a5c3b43738",
     "level": "display"
   },
   {
@@ -506,7 +506,7 @@
     "from": "HOT",
     "to": "MEDIA",
     "label": "MediaBundle",
-    "detail": "2411 bytes, sealed to PROD",
+    "detail": "2407 bytes, sealed to PROD",
     "cls": "media"
   },
   {
@@ -564,7 +564,7 @@
     "from": "HOT",
     "to": "MEDIA",
     "label": "MediaBundle",
-    "detail": "2391 bytes, sealed to PROD",
+    "detail": "2408 bytes, sealed to PROD",
     "cls": "media"
   },
   {
@@ -669,7 +669,7 @@
   {
     "kind": "event",
     "who": "COLD",
-    "text": "batch 2aa406b7 → Active",
+    "text": "batch ceefe40b → Active",
     "level": "info"
   },
   {
@@ -683,7 +683,7 @@
   {
     "kind": "event",
     "who": "PROD",
-    "text": "batch 2aa406b7 → Active",
+    "text": "batch ceefe40b → Active",
     "level": "info"
   },
   {
@@ -723,7 +723,7 @@
   {
     "kind": "event",
     "who": "COLD",
-    "text": "batch 36cb7f4b → Active",
+    "text": "batch e426b792 → Active",
     "level": "info"
   },
   {
@@ -737,7 +737,7 @@
   {
     "kind": "event",
     "who": "PROD",
-    "text": "batch 36cb7f4b → Active",
+    "text": "batch e426b792 → Active",
     "level": "info"
   },
   {
@@ -769,7 +769,7 @@
   },
   {
     "kind": "note",
-    "text": "UPSTREAM signs WithdrawalEnvelope{request 892875a9, 1 ETH to the allowlisted address, path m/hot/0, not_after +120s}"
+    "text": "UPSTREAM signs WithdrawalEnvelope{request 8ae2ceb6, 1 ETH to the allowlisted address, path m/hot/0, not_after +120s}"
   },
   {
     "kind": "note",
@@ -798,7 +798,7 @@
   {
     "kind": "event",
     "who": "COLD",
-    "text": "signed request 892875a9 → txid 8c80de68",
+    "text": "signed request 8ae2ceb6 → txid 47ed5e4d",
     "level": "ok"
   },
   {
@@ -814,7 +814,7 @@
     "from": "PROD",
     "to": "CHAIN",
     "label": "broadcast",
-    "detail": "txid 8c80de68",
+    "detail": "txid 47ed5e4d",
     "cls": "chain"
   },
   {
@@ -849,7 +849,7 @@
   },
   {
     "kind": "note",
-    "text": "signature recovers to 0xa9e96d6a2acd01c6f8e499bc8956641ed95a89ff == quorum-signed book address ✔ true"
+    "text": "signature recovers to 0x61dcd94468fde7d3288792535772175e0c275ea8 == quorum-signed book address ✔ true"
   },
   {
     "kind": "step",
@@ -882,7 +882,7 @@
   },
   {
     "kind": "note",
-    "text": "requester verifies with the pinned roster only: quorum sigs ✔ address re-derived ✔ control sig by the key ✔ active ✔ → 0xa9e96d6a2acd01c6f8e499bc8956641ed95a89ff"
+    "text": "requester verifies with the pinned roster only: quorum sigs ✔ address re-derived ✔ control sig by the key ✔ active ✔ → 0x61dcd94468fde7d3288792535772175e0c275ea8"
   },
   {
     "kind": "step",
@@ -922,11 +922,25 @@
     "level": "fault"
   },
   {
+    "kind": "event",
+    "who": "COLD",
+    "text": "discarded pool m/hot/0: frozen: new signing batches required",
+    "level": "warn"
+  },
+  {
+    "kind": "msg",
+    "from": "COLD",
+    "to": "PROD",
+    "label": "OrphanDelete",
+    "detail": "stream C, seq 3",
+    "cls": "link-c"
+  },
+  {
     "kind": "msg",
     "from": "COLD",
     "to": "PROD",
     "label": "FreezeNotice",
-    "detail": "stream C, seq 3",
+    "detail": "stream C, seq 4",
     "cls": "fault"
   },
   {
@@ -956,8 +970,8 @@
     "frozen_hot": false,
     "frozen_cold": true,
     "frozen_prod": true,
-    "prod_pool": 6,
-    "cold_pool": 6,
+    "prod_pool": 0,
+    "cold_pool": 0,
     "broadcasts": 1,
     "prod_revoked": false,
     "prod_gen": 1,
@@ -986,8 +1000,8 @@
     "frozen_hot": false,
     "frozen_cold": true,
     "frozen_prod": true,
-    "prod_pool": 6,
-    "cold_pool": 6,
+    "prod_pool": 0,
+    "cold_pool": 0,
     "broadcasts": 1,
     "prod_revoked": false,
     "prod_gen": 1,
@@ -1042,8 +1056,8 @@
     "frozen_hot": false,
     "frozen_cold": false,
     "frozen_prod": false,
-    "prod_pool": 6,
-    "cold_pool": 6,
+    "prod_pool": 0,
+    "cold_pool": 0,
     "broadcasts": 1,
     "prod_revoked": false,
     "prod_gen": 1,
@@ -1052,6 +1066,458 @@
   {
     "kind": "note",
     "text": "replaying that Unfreeze is refused: true"
+  },
+  {
+    "kind": "note",
+    "text": "the freeze ended every presignature of the key: COLD holds 0, PROD holds 0 (halves the attacker copied can never be completed)"
+  },
+  {
+    "kind": "state",
+    "hot_on": false,
+    "hot_counter": 2,
+    "frozen_hot": false,
+    "frozen_cold": false,
+    "frozen_prod": false,
+    "prod_pool": 0,
+    "cold_pool": 0,
+    "broadcasts": 1,
+    "prod_revoked": false,
+    "prod_gen": 1,
+    "media": 0
+  },
+  {
+    "kind": "note",
+    "text": "unfrozen, but signing needs NEW batches: refused at admission: not enough active presignatures"
+  },
+  {
+    "kind": "note",
+    "text": "operators at COLD and at HOT agree to wake HOT (unfreeze forces new signing batches)"
+  },
+  {
+    "kind": "state",
+    "hot_on": true,
+    "hot_counter": 2,
+    "frozen_hot": false,
+    "frozen_cold": false,
+    "frozen_prod": false,
+    "prod_pool": 0,
+    "cold_pool": 0,
+    "broadcasts": 1,
+    "prod_revoked": false,
+    "prod_gen": 1,
+    "media": 0
+  },
+  {
+    "kind": "note",
+    "text": "HOT powers on LOCKED and shows its hardware wake counter = 2"
+  },
+  {
+    "kind": "event",
+    "who": "HOT",
+    "text": "HOT wake counter = 2",
+    "level": "display"
+  },
+  {
+    "kind": "state",
+    "hot_on": true,
+    "hot_counter": 2,
+    "frozen_hot": false,
+    "frozen_cold": false,
+    "frozen_prod": false,
+    "prod_pool": 0,
+    "cold_pool": 0,
+    "broadcasts": 1,
+    "prod_revoked": false,
+    "prod_gen": 1,
+    "media": 0
+  },
+  {
+    "kind": "msg",
+    "from": "COLD",
+    "to": "HOT",
+    "label": "LinkHello",
+    "detail": "HOT booted locked: accepts only COLD",
+    "cls": "hello"
+  },
+  {
+    "kind": "msg",
+    "from": "HOT",
+    "to": "COLD",
+    "label": "LinkHello",
+    "detail": "link installed",
+    "cls": "hello"
+  },
+  {
+    "kind": "note",
+    "text": "COLD → HOT WakeOpen{PresignSync, max_batches 2, wake_seq 3}"
+  },
+  {
+    "kind": "event",
+    "who": "COLD",
+    "text": "COLD wake window: PresignSync key ce7d2535 v1 · max 2 batches · until 1800000600 · wake_seq 3 · digest 53462beae62e8156",
+    "level": "display"
+  },
+  {
+    "kind": "msg",
+    "from": "COLD",
+    "to": "HOT",
+    "label": "WakeOpen",
+    "detail": "stream B, seq 1",
+    "cls": "link-b"
+  },
+  {
+    "kind": "event",
+    "who": "HOT",
+    "text": "HOT wake window: PresignSync key ce7d2535 v1 · max 2 batches · until 1800000600 · wake_seq 3 · digest 53462beae62e8156",
+    "level": "display"
+  },
+  {
+    "kind": "state",
+    "hot_on": true,
+    "hot_counter": 3,
+    "frozen_hot": false,
+    "frozen_cold": false,
+    "frozen_prod": false,
+    "prod_pool": 0,
+    "cold_pool": 0,
+    "broadcasts": 1,
+    "prod_revoked": false,
+    "prod_gen": 1,
+    "media": 0
+  },
+  {
+    "kind": "note",
+    "text": "HOT checks: mode allows PresignSync ✔ key active ✔ caps ✔ wake_seq == counter+1 ✔ → counter advanced"
+  },
+  {
+    "kind": "note",
+    "text": "operator at HOT compares the digest on HOT's screen with COLD's screen → match"
+  },
+  {
+    "kind": "msg",
+    "from": "HOT",
+    "to": "COLD",
+    "label": "WakeAccept",
+    "detail": "stream B, seq 1",
+    "cls": "link-b"
+  },
+  {
+    "kind": "state",
+    "hot_on": true,
+    "hot_counter": 3,
+    "frozen_hot": false,
+    "frozen_cold": false,
+    "frozen_prod": false,
+    "prod_pool": 0,
+    "cold_pool": 0,
+    "broadcasts": 1,
+    "prod_revoked": false,
+    "prod_gen": 1,
+    "media": 0
+  },
+  {
+    "kind": "note",
+    "text": "operator at COLD confirms → window OPEN; COLD relays pending quorum files (RosterUpdate first)"
+  },
+  {
+    "kind": "msg",
+    "from": "COLD",
+    "to": "HOT",
+    "label": "QuorumFile",
+    "detail": "stream B, seq 2",
+    "cls": "quorum"
+  },
+  {
+    "kind": "event",
+    "who": "HOT",
+    "text": "refused QuorumFile: refused: illegal transition key is not frozen",
+    "level": "warn"
+  },
+  {
+    "kind": "state",
+    "hot_on": true,
+    "hot_counter": 3,
+    "frozen_hot": false,
+    "frozen_cold": false,
+    "frozen_prod": false,
+    "prod_pool": 0,
+    "cold_pool": 0,
+    "broadcasts": 1,
+    "prod_revoked": false,
+    "prod_gen": 1,
+    "media": 0
+  },
+  {
+    "kind": "note",
+    "text": "SP4 batch 1: COLD allocates ids above the pool's high-water mark in a fresh counter block"
+  },
+  {
+    "kind": "msg",
+    "from": "COLD",
+    "to": "HOT",
+    "label": "PresignOpen",
+    "detail": "stream B, seq 3",
+    "cls": "link-b"
+  },
+  {
+    "kind": "msg",
+    "from": "HOT",
+    "to": "COLD",
+    "label": "PresignAccept",
+    "detail": "stream B, seq 2",
+    "cls": "link-b"
+  },
+  {
+    "kind": "msg",
+    "from": "HOT",
+    "to": "MEDIA",
+    "label": "MediaBundle",
+    "detail": "2412 bytes, sealed to PROD",
+    "cls": "media"
+  },
+  {
+    "kind": "msg",
+    "from": "COLD",
+    "to": "HOT",
+    "label": "PresignMsg ×24",
+    "detail": "DKLs23 R1–R3 both ways, each frame signed + seq-checked",
+    "cls": "presign"
+  },
+  {
+    "kind": "msg",
+    "from": "HOT",
+    "to": "COLD",
+    "label": "PresignStored",
+    "detail": "stream B, seq 15",
+    "cls": "link-b"
+  },
+  {
+    "kind": "state",
+    "hot_on": true,
+    "hot_counter": 3,
+    "frozen_hot": false,
+    "frozen_cold": false,
+    "frozen_prod": false,
+    "prod_pool": 0,
+    "cold_pool": 0,
+    "broadcasts": 1,
+    "prod_revoked": false,
+    "prod_gen": 1,
+    "media": 1
+  },
+  {
+    "kind": "note",
+    "text": "SP4 batch 2: COLD allocates ids above the pool's high-water mark in a fresh counter block"
+  },
+  {
+    "kind": "msg",
+    "from": "COLD",
+    "to": "HOT",
+    "label": "PresignOpen",
+    "detail": "stream B, seq 16",
+    "cls": "link-b"
+  },
+  {
+    "kind": "msg",
+    "from": "HOT",
+    "to": "COLD",
+    "label": "PresignAccept",
+    "detail": "stream B, seq 16",
+    "cls": "link-b"
+  },
+  {
+    "kind": "msg",
+    "from": "HOT",
+    "to": "MEDIA",
+    "label": "MediaBundle",
+    "detail": "2416 bytes, sealed to PROD",
+    "cls": "media"
+  },
+  {
+    "kind": "msg",
+    "from": "COLD",
+    "to": "HOT",
+    "label": "PresignMsg ×24",
+    "detail": "DKLs23 R1–R3 both ways, each frame signed + seq-checked",
+    "cls": "presign"
+  },
+  {
+    "kind": "msg",
+    "from": "HOT",
+    "to": "COLD",
+    "label": "PresignStored",
+    "detail": "stream B, seq 29",
+    "cls": "link-b"
+  },
+  {
+    "kind": "state",
+    "hot_on": true,
+    "hot_counter": 3,
+    "frozen_hot": false,
+    "frozen_cold": false,
+    "frozen_prod": false,
+    "prod_pool": 0,
+    "cold_pool": 0,
+    "broadcasts": 1,
+    "prod_revoked": false,
+    "prod_gen": 1,
+    "media": 2
+  },
+  {
+    "kind": "msg",
+    "from": "COLD",
+    "to": "HOT",
+    "label": "WakeClose",
+    "detail": "stream B, seq 29",
+    "cls": "link-b"
+  },
+  {
+    "kind": "state",
+    "hot_on": true,
+    "hot_counter": 3,
+    "frozen_hot": false,
+    "frozen_cold": false,
+    "frozen_prod": false,
+    "prod_pool": 0,
+    "cold_pool": 0,
+    "broadcasts": 1,
+    "prod_revoked": false,
+    "prod_gen": 1,
+    "media": 2
+  },
+  {
+    "kind": "state",
+    "hot_on": false,
+    "hot_counter": 3,
+    "frozen_hot": false,
+    "frozen_cold": false,
+    "frozen_prod": false,
+    "prod_pool": 0,
+    "cold_pool": 0,
+    "broadcasts": 1,
+    "prod_revoked": false,
+    "prod_gen": 1,
+    "media": 2
+  },
+  {
+    "kind": "note",
+    "text": "window closed: HOT erased all session state and POWERED OFF (it holds no halves)"
+  },
+  {
+    "kind": "note",
+    "text": "an operator (not PROD's custodian) carries 2 bundle(s) on removable media to PROD"
+  },
+  {
+    "kind": "msg",
+    "from": "MEDIA",
+    "to": "PROD",
+    "label": "MediaBundle",
+    "detail": "carried by hand, imported",
+    "cls": "media"
+  },
+  {
+    "kind": "note",
+    "text": "PROD imports: HOT cert ✔ signature ✔ seq 0 ✔ HPKE open ✔ recompute digest ✔ ids above high-water ✔ → Pending"
+  },
+  {
+    "kind": "msg",
+    "from": "PROD",
+    "to": "COLD",
+    "label": "TransferAck",
+    "detail": "stream C, seq 3",
+    "cls": "link-c"
+  },
+  {
+    "kind": "event",
+    "who": "COLD",
+    "text": "batch 7bf7055d → Active",
+    "level": "info"
+  },
+  {
+    "kind": "msg",
+    "from": "COLD",
+    "to": "PROD",
+    "label": "PresignActivate",
+    "detail": "stream C, seq 5",
+    "cls": "link-c"
+  },
+  {
+    "kind": "event",
+    "who": "PROD",
+    "text": "batch 7bf7055d → Active",
+    "level": "info"
+  },
+  {
+    "kind": "state",
+    "hot_on": false,
+    "hot_counter": 3,
+    "frozen_hot": false,
+    "frozen_cold": false,
+    "frozen_prod": false,
+    "prod_pool": 4,
+    "cold_pool": 4,
+    "broadcasts": 1,
+    "prod_revoked": false,
+    "prod_gen": 1,
+    "media": 0
+  },
+  {
+    "kind": "msg",
+    "from": "MEDIA",
+    "to": "PROD",
+    "label": "MediaBundle",
+    "detail": "carried by hand, imported",
+    "cls": "media"
+  },
+  {
+    "kind": "note",
+    "text": "PROD imports: HOT cert ✔ signature ✔ seq 0 ✔ HPKE open ✔ recompute digest ✔ ids above high-water ✔ → Pending"
+  },
+  {
+    "kind": "msg",
+    "from": "PROD",
+    "to": "COLD",
+    "label": "TransferAck",
+    "detail": "stream C, seq 4",
+    "cls": "link-c"
+  },
+  {
+    "kind": "event",
+    "who": "COLD",
+    "text": "batch 7f78c956 → Active",
+    "level": "info"
+  },
+  {
+    "kind": "msg",
+    "from": "COLD",
+    "to": "PROD",
+    "label": "PresignActivate",
+    "detail": "stream C, seq 6",
+    "cls": "link-c"
+  },
+  {
+    "kind": "event",
+    "who": "PROD",
+    "text": "batch 7f78c956 → Active",
+    "level": "info"
+  },
+  {
+    "kind": "state",
+    "hot_on": false,
+    "hot_counter": 3,
+    "frozen_hot": false,
+    "frozen_cold": false,
+    "frozen_prod": false,
+    "prod_pool": 8,
+    "cold_pool": 8,
+    "broadcasts": 1,
+    "prod_revoked": false,
+    "prod_gen": 1,
+    "media": 0
+  },
+  {
+    "kind": "note",
+    "text": "COLD activates each batch only because own digest == HOT's export digest == PROD's import digest"
   },
   {
     "kind": "step",
@@ -1095,12 +1561,12 @@
   {
     "kind": "state",
     "hot_on": false,
-    "hot_counter": 2,
+    "hot_counter": 3,
     "frozen_hot": false,
     "frozen_cold": false,
     "frozen_prod": false,
-    "prod_pool": 4,
-    "cold_pool": 4,
+    "prod_pool": 8,
+    "cold_pool": 8,
     "broadcasts": 1,
     "prod_revoked": false,
     "prod_gen": 1,
@@ -1108,11 +1574,11 @@
   },
   {
     "kind": "note",
-    "text": "PROD obeys OrphanDelete: available 6 → 4 (rest of the open block burned, next batch intact)"
+    "text": "PROD obeys OrphanDelete: available 8 → 8 (rest of the open block burned, next batch intact)"
   },
   {
     "kind": "note",
-    "text": "UPSTREAM signs WithdrawalEnvelope{request ce3d5b47, 2 ETH, path m/hot/0, not_after +120s}"
+    "text": "UPSTREAM signs WithdrawalEnvelope{request 29033531, 2 ETH, path m/hot/0, not_after +120s}"
   },
   {
     "kind": "note",
@@ -1141,7 +1607,7 @@
   {
     "kind": "event",
     "who": "COLD",
-    "text": "signed request ce3d5b47 → txid 913cf17a",
+    "text": "signed request 29033531 → txid 668f8545",
     "level": "ok"
   },
   {
@@ -1157,18 +1623,18 @@
     "from": "PROD",
     "to": "CHAIN",
     "label": "broadcast",
-    "detail": "txid 913cf17a",
+    "detail": "txid 668f8545",
     "cls": "chain"
   },
   {
     "kind": "state",
     "hot_on": false,
-    "hot_counter": 2,
+    "hot_counter": 3,
     "frozen_hot": false,
     "frozen_cold": false,
     "frozen_prod": false,
-    "prod_pool": 3,
-    "cold_pool": 3,
+    "prod_pool": 7,
+    "cold_pool": 7,
     "broadcasts": 2,
     "prod_revoked": false,
     "prod_gen": 1,
@@ -1204,11 +1670,11 @@
   {
     "kind": "state",
     "hot_on": false,
-    "hot_counter": 2,
+    "hot_counter": 3,
     "frozen_hot": false,
     "frozen_cold": false,
     "frozen_prod": false,
-    "prod_pool": 3,
+    "prod_pool": 7,
     "cold_pool": 0,
     "broadcasts": 2,
     "prod_revoked": true,
@@ -1273,7 +1739,7 @@
   {
     "kind": "state",
     "hot_on": false,
-    "hot_counter": 2,
+    "hot_counter": 3,
     "frozen_hot": false,
     "frozen_cold": false,
     "frozen_prod": false,
@@ -1315,7 +1781,7 @@
   {
     "kind": "state",
     "hot_on": true,
-    "hot_counter": 2,
+    "hot_counter": 3,
     "frozen_hot": false,
     "frozen_cold": false,
     "frozen_prod": false,
@@ -1328,12 +1794,12 @@
   },
   {
     "kind": "note",
-    "text": "HOT powers on LOCKED and shows its hardware wake counter = 2"
+    "text": "HOT powers on LOCKED and shows its hardware wake counter = 3"
   },
   {
     "kind": "event",
     "who": "HOT",
-    "text": "HOT wake counter = 2",
+    "text": "HOT wake counter = 3",
     "level": "display"
   },
   {
@@ -1345,7 +1811,7 @@
   {
     "kind": "state",
     "hot_on": true,
-    "hot_counter": 2,
+    "hot_counter": 3,
     "frozen_hot": false,
     "frozen_cold": false,
     "frozen_prod": false,
@@ -1374,12 +1840,12 @@
   },
   {
     "kind": "note",
-    "text": "COLD → HOT WakeOpen{PresignSync, max_batches 1, wake_seq 3}"
+    "text": "COLD → HOT WakeOpen{PresignSync, max_batches 1, wake_seq 4}"
   },
   {
     "kind": "event",
     "who": "COLD",
-    "text": "COLD wake window: PresignSync key 89ca6828 v1 · max 1 batches · until 1800000600 · wake_seq 3 · digest 1e42fbf0ecad3c1c",
+    "text": "COLD wake window: PresignSync key ce7d2535 v1 · max 1 batches · until 1800000600 · wake_seq 4 · digest f14cbfd8262623f2",
     "level": "display"
   },
   {
@@ -1393,13 +1859,13 @@
   {
     "kind": "event",
     "who": "HOT",
-    "text": "HOT wake window: PresignSync key 89ca6828 v1 · max 1 batches · until 1800000600 · wake_seq 3 · digest 1e42fbf0ecad3c1c",
+    "text": "HOT wake window: PresignSync key ce7d2535 v1 · max 1 batches · until 1800000600 · wake_seq 4 · digest f14cbfd8262623f2",
     "level": "display"
   },
   {
     "kind": "state",
     "hot_on": true,
-    "hot_counter": 3,
+    "hot_counter": 4,
     "frozen_hot": false,
     "frozen_cold": false,
     "frozen_prod": false,
@@ -1429,7 +1895,7 @@
   {
     "kind": "state",
     "hot_on": true,
-    "hot_counter": 3,
+    "hot_counter": 4,
     "frozen_hot": false,
     "frozen_cold": false,
     "frozen_prod": false,
@@ -1461,20 +1927,6 @@
     "cls": "quorum"
   },
   {
-    "kind": "msg",
-    "from": "COLD",
-    "to": "HOT",
-    "label": "QuorumFile",
-    "detail": "stream B, seq 4",
-    "cls": "quorum"
-  },
-  {
-    "kind": "event",
-    "who": "HOT",
-    "text": "refused QuorumFile: refused: illegal transition key is not frozen",
-    "level": "warn"
-  },
-  {
     "kind": "event",
     "who": "HOT",
     "text": "verified quorum signatures and applied RevocationList",
@@ -1489,7 +1941,7 @@
   {
     "kind": "state",
     "hot_on": true,
-    "hot_counter": 3,
+    "hot_counter": 4,
     "frozen_hot": false,
     "frozen_cold": false,
     "frozen_prod": false,
@@ -1509,7 +1961,7 @@
     "from": "COLD",
     "to": "HOT",
     "label": "PresignOpen",
-    "detail": "stream B, seq 5",
+    "detail": "stream B, seq 4",
     "cls": "link-b"
   },
   {
@@ -1525,7 +1977,7 @@
     "from": "HOT",
     "to": "MEDIA",
     "label": "MediaBundle",
-    "detail": "2408 bytes, sealed to PROD",
+    "detail": "2398 bytes, sealed to PROD",
     "cls": "media"
   },
   {
@@ -1547,7 +1999,7 @@
   {
     "kind": "state",
     "hot_on": true,
-    "hot_counter": 3,
+    "hot_counter": 4,
     "frozen_hot": false,
     "frozen_cold": false,
     "frozen_prod": false,
@@ -1563,13 +2015,13 @@
     "from": "COLD",
     "to": "HOT",
     "label": "WakeClose",
-    "detail": "stream B, seq 18",
+    "detail": "stream B, seq 17",
     "cls": "link-b"
   },
   {
     "kind": "state",
     "hot_on": true,
-    "hot_counter": 3,
+    "hot_counter": 4,
     "frozen_hot": false,
     "frozen_cold": false,
     "frozen_prod": false,
@@ -1583,7 +2035,7 @@
   {
     "kind": "state",
     "hot_on": false,
-    "hot_counter": 3,
+    "hot_counter": 4,
     "frozen_hot": false,
     "frozen_cold": false,
     "frozen_prod": false,
@@ -1625,7 +2077,7 @@
   {
     "kind": "event",
     "who": "COLD",
-    "text": "batch 13937491 → Active",
+    "text": "batch c53fee97 → Active",
     "level": "info"
   },
   {
@@ -1639,13 +2091,13 @@
   {
     "kind": "event",
     "who": "PROD",
-    "text": "batch 13937491 → Active",
+    "text": "batch c53fee97 → Active",
     "level": "info"
   },
   {
     "kind": "state",
     "hot_on": false,
-    "hot_counter": 3,
+    "hot_counter": 4,
     "frozen_hot": false,
     "frozen_cold": false,
     "frozen_prod": false,
@@ -1662,7 +2114,7 @@
   },
   {
     "kind": "note",
-    "text": "UPSTREAM signs WithdrawalEnvelope{request 097c3070, 1 ETH via the new PROD, path m/hot/0, not_after +120s}"
+    "text": "UPSTREAM signs WithdrawalEnvelope{request ccac4053, 1 ETH via the new PROD, path m/hot/0, not_after +120s}"
   },
   {
     "kind": "note",
@@ -1691,7 +2143,7 @@
   {
     "kind": "event",
     "who": "COLD",
-    "text": "signed request 097c3070 → txid e934332b",
+    "text": "signed request ccac4053 → txid 2aea5a3d",
     "level": "ok"
   },
   {
@@ -1707,13 +2159,13 @@
     "from": "PROD",
     "to": "CHAIN",
     "label": "broadcast",
-    "detail": "txid e934332b",
+    "detail": "txid 2aea5a3d",
     "cls": "chain"
   },
   {
     "kind": "state",
     "hot_on": false,
-    "hot_counter": 3,
+    "hot_counter": 4,
     "frozen_hot": false,
     "frozen_cold": false,
     "frozen_prod": false,
@@ -1775,7 +2227,7 @@
   },
   {
     "kind": "note",
-    "text": "auditor asks about 0x79d61e23fa4408c44caad6c5f0e03ab72f154810 → proof verifies offline: true"
+    "text": "auditor asks about 0x238f2102cd57dd2f1bcea335bb68d39eb13bde18 → proof verifies offline: true"
   },
   {
     "kind": "msg",
@@ -1829,15 +2281,15 @@
   },
   {
     "kind": "note",
-    "text": "  txid 8c80de6851724a7a  from 0xa9e96d6a2acd01c6f8e499bc8956641ed95a89ff"
+    "text": "  txid 47ed5e4de27b45a9  from 0x61dcd94468fde7d3288792535772175e0c275ea8"
   },
   {
     "kind": "note",
-    "text": "  txid 913cf17a832c9be2  from 0xa9e96d6a2acd01c6f8e499bc8956641ed95a89ff"
+    "text": "  txid 668f8545efd8733a  from 0x61dcd94468fde7d3288792535772175e0c275ea8"
   },
   {
     "kind": "note",
-    "text": "  txid e934332b11e2b36d  from 0xa9e96d6a2acd01c6f8e499bc8956641ed95a89ff"
+    "text": "  txid 2aea5a3d683a4eb8  from 0x61dcd94468fde7d3288792535772175e0c275ea8"
   },
   {
     "kind": "note",
@@ -1850,7 +2302,7 @@
   {
     "kind": "state",
     "hot_on": false,
-    "hot_counter": 3,
+    "hot_counter": 4,
     "frozen_hot": false,
     "frozen_cold": false,
     "frozen_prod": false,

@@ -353,6 +353,27 @@ impl Prod {
         Ok(halves)
     }
 
+    /// Delete every half of a key version and abort its batches (pending and active): after a
+    /// freeze, signing resumes only with batches made after the Unfreeze.
+    fn retire_presignatures(&mut self, key_id: KeyId, kv: u32, reason: &str) {
+        let mut n = 0;
+        self.pools.retain(|p, m| {
+            let hit = p.key_id == key_id && p.key_version == kv;
+            if hit {
+                n += m.len();
+            }
+            !hit
+        });
+        for b in self.batches.values_mut() {
+            if b.pool.key_id == key_id && b.pool.key_version == kv && b.st != PBatch::Aborted {
+                b.st = PBatch::Aborted;
+            }
+        }
+        if n > 0 {
+            self.events.push(Event::PoolDiscarded { path: "*".into(), reason: format!("{reason}: {n} halves deleted, new signing batches required") });
+        }
+    }
+
     fn abort_local(&mut self, b: &B32) {
         if let Some(rec) = self.batches.get_mut(b) {
             if rec.st == PBatch::Active {
@@ -406,6 +427,7 @@ impl Prod {
                 let f: FreezeNotice = decode_canonical(&body).unwrap();
                 if self.keyring.freeze(&f.key_id, f.key_version, f.fault, f.evidence_hash) {
                     self.events.push(Event::Frozen { key_id: f.key_id, fault: f.fault });
+                    self.retire_presignatures(f.key_id, f.key_version, "frozen");
                 }
             }
             MsgType::OrphanDelete => {
@@ -584,6 +606,7 @@ impl Prod {
             }
             MsgType::Unfreeze => {
                 let c = self.keyring.apply_unfreeze(&mut self.trust, bytes).map_err(|x| e(x.to_string()))?;
+                self.retire_presignatures(c.key_id, c.key_version, "unfrozen");
                 self.events.push(Event::Unfrozen { key_id: c.key_id });
             }
             MsgType::RevocationList => {

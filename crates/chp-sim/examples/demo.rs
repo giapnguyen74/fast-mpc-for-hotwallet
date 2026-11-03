@@ -169,6 +169,15 @@ async fn main() {
     w.flush_events();
     w.snap();
     note(&format!("replaying that Unfreeze is refused: {}", w.cold.apply_quorum(&u, w.now).is_err()));
+    note(&format!(
+        "the freeze ended every presignature of the key: COLD holds {}, PROD holds {} (halves the attacker copied can never be completed)",
+        w.cold.pool(&w.pool(PATH)).unwrap().halves.len(),
+        w.prod.available(&w.pool(PATH))
+    ));
+    let r = w.withdraw(DEST, 1, PATH).await;
+    note(&format!("unfrozen, but signing needs NEW batches: {}", r.unwrap_err()));
+    wake_and_presign(&mut w, 2, "unfreeze forces new signing batches").await;
+    carry(&mut w).await;
 
     // ------------------------------------------------------------------ COLD restart
     step("§6.1", "COLD restart: hardware counter closes the open block");

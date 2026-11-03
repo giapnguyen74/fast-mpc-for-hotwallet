@@ -107,6 +107,14 @@ public parts; a compromised HOT can corrupt the halves it seals for PROD, and th
 fails as a PROD fragment fault). Incident response must treat a `FAULT_PROD_FRAGMENT` on a fresh
 batch as possibly HOT. The library's `PreSign` is `Copy`, so its zeroization is best-effort.
 
+### Follow-up: a freeze ends every presignature
+
+A freeze now discards every presignature of the key on COLD and PROD, and the Unfreeze repeats
+this as a backstop, so signing resumes only with new batches from a fresh wake window. Halves a
+compromised PROD copied during the incident are then useless, even if COLD is breached later.
+Key shares are untouched (design-notes E8). Test: `compromised_prod_cannot_redirect_funds`
+(the stolen half is refused after the Unfreeze; mutation-checked).
+
 ## Open items (accepted for the prototype)
 
 | Item | Why open |

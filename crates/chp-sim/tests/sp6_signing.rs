@@ -121,12 +121,17 @@ async fn compromised_prod_cannot_redirect_funds() {
     let evil = w.tx(ATTACKER, 9 * ETH);
     let (_, env) = w.envelope(good.clone(), PATH);
     let id = first_id(&w);
+    // the compromised PROD also keeps a copy of every half it holds
+    let stolen = w.prod.steal_halves();
     let (job, frags) = craft(&mut w, &env, &evil, id, &good);
     let seq = job.job_seq;
     w.prod.adversary_send_job(job, &frags);
     w.pump().await;
     let st = w.status_of(seq).unwrap();
     assert_eq!(st.outcome, Outcome::Fault(Fault::FinalVerify), "{}", st.reason);
+    // the freeze ended every presignature of the key on both sides
+    assert!(w.cold.pool(&w.pool(PATH)).unwrap().halves.is_empty(), "COLD's matching halves are gone");
+    assert_eq!(w.prod.available(&w.pool(PATH)), 0);
     assert!(w.broadcasts.is_empty(), "nothing invalid is broadcast");
     assert!(frozen(&w), "COLD froze the key");
     assert!(w.prod.keyring.get(&w.key_id, 1).unwrap().frozen.is_some(), "PROD froze on the notice");
@@ -135,6 +140,31 @@ async fn compromised_prod_cannot_redirect_funds() {
     // Recovery needs a quorum Unfreeze; a replayed Unfreeze is refused.
     let u = w.unfreeze();
     assert!(w.cold.apply_quorum(&u, w.now).is_err(), "old Unfreeze cannot be replayed");
+    // Unfrozen, but no old presignature survives: signing needs new batches.
+    assert!(w.withdraw(DEST, 1, PATH).await.unwrap_err().to_string().contains("presignatures"));
+    // a half stolen during the incident can never be completed
+    let (_, sid, half) = stolen.into_iter().nth(1).unwrap();
+    let raw = w.tx(DEST, 1);
+    let (_, env) = w.envelope(raw.clone(), PATH);
+    let y = w.prod.keyring.get(&w.key_id, 1).unwrap().group_key();
+    let m = chp_chain::decode(CHAIN, &raw).unwrap().messages[0];
+    let frag = prod_fragment(half, &m, &t_path(&w.key_id.0, &y, PATH)).unwrap();
+    let job = Job {
+        job_seq: w.prod.adversary_bump_job_seq(),
+        envelope: Bytes(env),
+        key_version: 1,
+        items: vec![JobItem { input: 0, presig_id: sid, ssid: ssid(CHAIN, &w.key_id, 1, sid, &m, PATH) }],
+        prod_time: w.now,
+        sealed: Sealed { enc: Bytes::default(), ct: Bytes::default() },
+    };
+    let seq = job.job_seq;
+    w.prod.adversary_send_job(job, &[frag]);
+    w.pump().await;
+    let st = w.status_of(seq).unwrap();
+    assert_eq!(st.outcome, Outcome::Rejected, "{}", st.reason);
+    assert!(w.broadcasts.is_empty());
+    // a fresh wake window + batch: signing resumes with new presignatures only
+    w.refill(PATH, 1).await;
     let j = w.withdraw(DEST, 1, PATH).await.unwrap();
     assert_eq!(w.status_of(j).unwrap().outcome, Outcome::Signed);
 }

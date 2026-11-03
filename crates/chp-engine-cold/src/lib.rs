@@ -966,6 +966,9 @@ impl Cold {
         if self.st.keyring.freeze(&key_id, kv, fault, evidence_hash) {
             self.bump_state();
             self.ev(Event::Frozen { key_id, fault });
+            // Every presignature of this key ends now: halves PROD (or an attacker) may have
+            // copied can never be completed. Signing resumes only with new batches.
+            self.retire_presignatures(key_id, kv, "frozen: new signing batches required");
             let n = FreezeNotice { key_id, key_version: kv, fault, evidence_hash };
             if from != Some(Role::Prod) {
                 self.send(Role::Prod, MsgType::FreezeNotice, &n);
@@ -973,6 +976,33 @@ impl Cold {
             if from != Some(Role::Hot) && self.wake_open() {
                 self.send(Role::Hot, MsgType::FreezeNotice, &n);
             }
+        }
+    }
+
+    /// End every presignature of a key version: abort batches still in flight, discard every
+    /// pool (floor above all issued blocks), and tell PROD to delete its halves.
+    fn retire_presignatures(&mut self, key_id: KeyId, kv: u32, reason: &str) {
+        let inflight: Vec<B32> = self
+            .st
+            .batches
+            .iter()
+            .filter(|(_, b)| b.pool.key_id == key_id && b.pool.key_version == kv && !matches!(b.st, BatchSt::Active | BatchSt::Aborted))
+            .map(|(k, _)| *k)
+            .collect();
+        for b in inflight {
+            self.abort_batch(&b, AbortReason::Operator);
+        }
+        let pools: Vec<PoolId> = self.st.pools.keys().filter(|p| p.key_id == key_id && p.key_version == kv).cloned().collect();
+        for p in pools {
+            let hw = self.hw(&p) as u32;
+            let pool = self.st.pools.get_mut(&p).unwrap();
+            if pool.halves.is_empty() && pool.floor_block.is_some_and(|f| f + 1 >= pool.next_block) {
+                continue; // nothing left since the last discard
+            }
+            pool.discard(hw);
+            let floor = pool.floor_block.unwrap();
+            self.ev(Event::PoolDiscarded { path: p.path.clone(), reason: reason.into() });
+            self.queue_prod(MsgType::OrphanDelete, &OrphanDelete { pool: p, presig_ids: vec![], up_to_block: Some(floor + 1) });
         }
     }
 
@@ -1037,6 +1067,9 @@ impl Cold {
             }
             MsgType::Unfreeze => {
                 let c = self.st.keyring.apply_unfreeze(&mut self.st.trust, bytes).map_err(|x| e(x.to_string()))?;
+                // Backstop: whatever was left (e.g. a batch in flight) is discarded too, so the
+                // key resumes only with presignatures made after the Unfreeze.
+                self.retire_presignatures(c.key_id, c.key_version, "unfrozen: new signing batches required");
                 self.ev(Event::Unfrozen { key_id: c.key_id });
             }
             MsgType::RevocationList => {
