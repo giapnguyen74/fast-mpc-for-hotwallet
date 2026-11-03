@@ -898,11 +898,11 @@ impl Cold {
         if job.prod_time.abs_diff(env.upstream_time) > self.cfg.max_time_skew {
             return rej("time sources disagree");
         }
-        // No future-dated envelopes: they would outlive the replay cache (security review r2).
+        // Time is the two signed request times (which must agree, above); COLD's local clock is
+        // only a floor (DESIGN §9.3). A request dated ahead of COLD's clock is therefore NOT
+        // refused: a slow or air-gapped COLD clock must not block legitimate withdrawals.
+        // Replay safety does not depend on dating (see `ReplayCache`).
         let skew = self.cfg.max_time_skew;
-        if env.upstream_time > cold_now + skew || env.not_after > cold_now + self.cfg.max_request_window + skew {
-            return rej("envelope dated in the future");
-        }
         let t_now = cold_now.max(job.prod_time);
         if env.not_after < env.upstream_time || env.not_after - env.upstream_time > self.cfg.max_request_window {
             return rej("validity window too long");
@@ -952,10 +952,15 @@ impl Cold {
         }
         // Only a request that passed every check consumes its request_id (a bad job from PROD
         // cannot burn a genuine request). Kept until not_after + slack on COLD's own clock.
-        self.st.replay.check_and_insert(env.request_id, env.not_after.saturating_add(skew), cold_now);
-        // The floor moves only on authenticated time: the earlier of the two signed times of a
-        // request that passed every check (a host clock can never push it; security review r2).
-        self.st.local_time_floor = self.st.local_time_floor.max(env.upstream_time.min(job.prod_time));
+        // The floor moves only on authenticated time, and never ahead of COLD's own clock: the
+        // earliest of the two signed times and the host clock (a host alone can never push it,
+        // and a request dated in the future can't drag COLD's time forward and expire honest
+        // requests). It never moves back.
+        self.st.local_time_floor = self.st.local_time_floor.max(env.upstream_time.min(job.prod_time).min(now));
+        // Keep the request until not_after + skew, pruning only by the authenticated floor: an
+        // entry leaves the cache only once the floor (≤ every later expiry check) is past it.
+        let floor = self.st.local_time_floor;
+        self.st.replay.check_and_insert(env.request_id, env.not_after.saturating_add(skew), floor);
         Ok((decoded.clone(), decoded.messages.clone(), t_now))
     }
 

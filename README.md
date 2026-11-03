@@ -328,7 +328,7 @@ Rust workspace (see [`docs/PLAN.md`](docs/PLAN.md)):
 ./scripts/web-demo.sh                 # animated web demo of a real run → http://127.0.0.1:14080
 cargo run -p chp-sim --example demo   # narrated run of every flow above, every message printed
 cargo run --release -p chp-sim --example bench   # timings (see docs/BENCHMARKS.md)
-cargo test --workspace                # 122 tests: crypto validation, SP1, engines, end-to-end, adversarial, security regressions
+cargo test --workspace                # 124 tests: crypto validation, SP1, engines, end-to-end, adversarial, security regressions
 ./scripts/check-capabilities.sh       # PROD has no MPC code path; no simulation hooks in production builds
 ```
 

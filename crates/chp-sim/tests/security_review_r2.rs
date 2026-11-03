@@ -52,40 +52,114 @@ async fn r1_restoring_a_prefrozen_snapshot_cannot_be_undone_by_an_old_unfreeze()
     assert_eq!(w.prod.keyring.get(&w.key_id, 1).unwrap().frozen, Some(Fault::Rollback), "PROD froze on the notice");
 }
 
-#[tokio::test(flavor = "multi_thread")]
-async fn r2_future_dated_envelopes_are_refused_by_cold() {
-    let mut w = World::setup(Options::default()).await;
-    w.refill(PATH, 1).await;
-    let raw = w.tx(DEST, 1);
-    let (_, env) = w.envelope(raw.clone(), PATH);
-    // re-sign the envelope as UPSTREAM, dated 1000 s ahead
-    let f: chp_wire::SignedMsg = chp_wire::decode_canonical(&env).unwrap();
-    let mut e: WithdrawalEnvelope = chp_wire::decode_canonical(&f.body.0).unwrap();
-    e.upstream_time = w.now + 1000;
-    e.not_after = w.now + 1100;
-    let env = chp_auth::sign_body(&w.upstream, MsgType::WithdrawalEnvelope, 0, &e);
-    assert!(w.prod.withdraw(&env, w.now).is_err(), "PROD refuses it");
-    // a compromised PROD forwards it with a matching prod_time: COLD refuses it too
+/// A compromised PROD's job for `env` using the next half it holds.
+fn forged_job(w: &mut World, env: Vec<u8>, raw: &[u8], prod_time: u64) -> (Job, Vec<chp_crypto::ecdsa::EcdsaFragment>) {
     let pool = w.pool(PATH);
     let id = w.prod.held_ids(&pool)[0];
     let half = w.prod.adversary_take_half(&pool, id).unwrap();
     let y = w.prod.keyring.get(&w.key_id, 1).unwrap().group_key();
-    let m = chp_chain::decode(CHAIN, &raw).unwrap().messages[0];
+    let m = chp_chain::decode(CHAIN, raw).unwrap().messages[0];
     let frag = prod_fragment(half, &m, &t_path(&w.key_id.0, &y, PATH)).unwrap();
     let job = Job {
         job_seq: w.prod.adversary_bump_job_seq(),
         envelope: Bytes(env),
         key_version: 1,
         items: vec![JobItem { input: 0, presig_id: id, ssid: ssid(CHAIN, &w.key_id, 1, id, &m, PATH) }],
-        prod_time: w.now + 1000,
+        prod_time,
         sealed: Sealed { enc: Bytes::default(), ct: Bytes::default() },
     };
-    let seq = job.job_seq;
-    w.prod.adversary_send_job(job, &[frag]);
+    (job, vec![frag])
+}
+
+fn dated_envelope(w: &World, raw: Vec<u8>, upstream_time: u64) -> Vec<u8> {
+    let (_, env) = w.envelope(raw, PATH);
+    let f: chp_wire::SignedMsg = chp_wire::decode_canonical(&env).unwrap();
+    let mut e: WithdrawalEnvelope = chp_wire::decode_canonical(&f.body.0).unwrap();
+    e.upstream_time = upstream_time;
+    e.not_after = upstream_time + 100;
+    chp_auth::sign_body(&w.upstream, MsgType::WithdrawalEnvelope, 0, &e)
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn r2_a_future_dated_envelope_is_signed_at_most_once() {
+    // Not refused for being ahead of COLD's clock (DESIGN §9.3: the signed times are the time),
+    // and never signed twice: the replay cache keeps it until not_after + skew and is pruned
+    // only by COLD's authenticated floor.
+    let mut w = World::setup(Options::default()).await;
+    w.refill(PATH, 2).await;
+    let raw = w.tx(DEST, 1);
+    let ahead = w.now + 1000;
+    let env = dated_envelope(&w, raw.clone(), ahead);
+    let (job, frags) = forged_job(&mut w, env.clone(), &raw, ahead);
+    let first = job.job_seq;
+    w.prod.adversary_send_job(job, &frags);
     w.pump().await;
+    assert_eq!(w.status_of(first).unwrap().outcome, Outcome::Signed, "{}", w.status_of(first).unwrap().reason);
+    // later genuine jobs move the floor; then the same envelope again, several times
+    for _ in 0..3 {
+        w.advance(200);
+        let j = w.withdraw(DEST, 1, PATH).await.unwrap();
+        assert_eq!(w.status_of(j).unwrap().outcome, Outcome::Signed);
+        let (job, frags) = forged_job(&mut w, env.clone(), &raw, ahead);
+        let seq = job.job_seq;
+        w.prod.adversary_send_job(job, &frags);
+        w.pump().await;
+        let st = w.status_of(seq).unwrap();
+        assert_ne!(st.outcome, Outcome::Signed, "signed twice: {}", st.reason);
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn r2b_a_slow_cold_clock_does_not_block_withdrawals() {
+    let mut w = World::setup(Options::default()).await;
+    w.advance(3600);
+    w.refill(PATH, 1).await;
+    let mut signed = 0;
+    for _ in 0..3 {
+        let raw = w.tx(DEST, 1);
+        let (_, env) = w.envelope(raw, PATH);
+        w.prod.withdraw(&env, w.now).unwrap();
+        let slow = w.now - 600; // COLD's clock runs 10 minutes slow
+        signed += shuttle(&mut w, slow);
+        w.advance(5);
+    }
+    assert_eq!(signed, 3, "{:?}", w.cold.events.iter().rev().take(3).collect::<Vec<_>>());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn r2c_a_host_clock_jump_cannot_prune_the_replay_cache() {
+    let mut w = World::setup(Options::default()).await;
+    w.advance(3600);
+    w.refill(PATH, 2).await;
+    let t = w.now;
+    // E1 signed normally at T (valid until T+120)
+    let raw1 = w.tx(DEST, 1);
+    let (_, e1) = w.envelope(raw1.clone(), PATH);
+    w.prod.withdraw(&e1, t).unwrap();
+    w.pump().await;
+    assert_eq!(w.broadcasts.len(), 1);
+    // The host briefly runs COLD's clock at T+250. A genuine request E2, signed at T-40 and
+    // valid until T+260, is accepted at that clock (a host-clock prune would evict E1 here).
+    let raw2 = w.tx(DEST, 2);
+    let (_, e2) = w.envelope(raw2.clone(), PATH);
+    let f: chp_wire::SignedMsg = chp_wire::decode_canonical(&e2).unwrap();
+    let mut b: WithdrawalEnvelope = chp_wire::decode_canonical(&f.body.0).unwrap();
+    b.upstream_time = t - 40;
+    b.not_after = t + 260;
+    let e2 = chp_auth::sign_body(&w.upstream, MsgType::WithdrawalEnvelope, 0, &b);
+    let (job2, f2) = forged_job(&mut w, e2, &raw2, t - 40);
+    let s2 = job2.job_seq;
+    w.prod.adversary_send_job(job2, &f2);
+    shuttle(&mut w, t + 250);
+    assert_eq!(w.status_of(s2).unwrap().outcome, Outcome::Signed, "{}", w.status_of(s2).unwrap().reason);
+    // the clock is back at T+10; a compromised PROD replays E1 (still valid at T+10)
+    let (job1, f1) = forged_job(&mut w, e1, &raw1, t + 10);
+    let seq = job1.job_seq;
+    w.prod.adversary_send_job(job1, &f1);
+    shuttle(&mut w, t + 10);
     let st = w.status_of(seq).unwrap();
-    assert_eq!(st.outcome, Outcome::Rejected);
-    assert!(st.reason.contains("future"), "{}", st.reason);
+    assert_eq!(st.outcome, Outcome::Rejected, "{}", st.reason);
+    assert!(st.reason.contains("replay"), "{}", st.reason);
 }
 
 #[tokio::test(flavor = "multi_thread")]
